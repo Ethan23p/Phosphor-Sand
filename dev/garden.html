@@ -22,6 +22,6 @@ const water = s => {
 };
 const sides = a => { let l = 0, r = 0; a.forEach((c, i) => { if ((c & 255) === T.PLANT) (i % W < 95 ? l++ : r++); }); return `${stats(a)} | plants left/right ${l}/${r}`; };
 await h.snapshot(sides);
-for (const t of [900, 2700, 3600, 6300, 10800, 18000]) { h.run(t - h.step, water); await h.snapshot(sides); }
+for (const t of [900, 2700, 3600, 6300, 10800, 18000, 32400]) { h.run(t - h.step, water); await h.snapshot(sides); }
 h.finish('garden: repeated watering for 20s, then none');
 </script></body></html>

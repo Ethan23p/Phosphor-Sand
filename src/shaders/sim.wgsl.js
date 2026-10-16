@@ -352,9 +352,15 @@ fn tick_plant(cin: Cells, i:u32, b: Block) -> Cells {
     }
   }
 
-  // Metabolism: every cell slowly burns energy
-  if ((roll(b, i, 34u) % METAB_ODDS) == 0u && energy > 0u) {
+  // Metabolism: every cell slowly burns energy, now and then breathing out
+  // steam into open air, so a forest returns part of its water as rain
+  let mr = roll(b, i, 34u);
+  if ((mr % METAB_ODDS) == 0u && energy > 0u) {
     energy = energy - 1u;
+    if (((mr >> 12u) % TRANSPIRE_ODDS) == 0u) {
+      let j = find_neighbor(c, i, EMPTY, roll(b, i, 37u));
+      if (j < 4u) { c[j] = steam_cell(roll(b, i, 38u)); }
+    }
   }
 
   // Starved cells die, occasionally leaving a seed

@@ -26,13 +26,14 @@ export const TUNING = {
   GROW_COST_MIN: 30,     // energy spent per new cell, at noise=1.0 (fertile)
   GROW_COST_MAX: 80,     // energy spent per new cell, at noise=0.0 (barren)
   GROW_KEEP: 8,          // a tip must keep this much after paying for growth
-  FORWARD_BIAS: 8,       // tips prefer to keep growing the way they were going...
+  FORWARD_BIAS: 3,       // tips mildly prefer to keep growing the way they were going...
   UP_BIAS: 3,            // ...and upward; sideways weighs 2, down 1, back 0
-  BRANCH_ODDS: 20,       // 1 in N growths leaves the old tip growing too
+  BRANCH_ODDS: 6,        // 1 in N growths leaves the old tip growing too (bushy, not wiry)
   RETIRE_ODDS: 12,       // a tip that tries a blocked cell sometimes gives up and becomes stem
-  BUD_ODDS: 8192,        // a full stem (energy ≥ STEM_CAP) rarely sprouts a new tip (~1 per 45s each)
-  METAB_ODDS: 256,       // every cell burns 1 energy per ~1.4s; a stem at reserve starves in ~35s
-  SEED_DROP_ODDS: 48,    // a starved cell leaves a seed instead of empty space
+  BUD_ODDS: 2048,        // a full stem (energy ≥ STEM_CAP) sometimes sprouts a new tip (~1 per 11s each)
+  METAB_ODDS: 512,       // every cell burns 1 energy per ~2.8s; a stem at reserve starves in ~70s
+  SEED_DROP_ODDS: 16,    // a starved cell leaves a seed instead of empty space
+  TRANSPIRE_ODDS: 64,    // 1 in N energy burned is breathed out as steam: ~60% of a water's worth comes back as rain
 
   // ── Fire, water, steam ──
   IGNITE_ODDS: 8,        // fire's chance per step to ignite plants/seeds in its block
