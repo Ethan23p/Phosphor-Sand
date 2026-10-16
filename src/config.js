@@ -15,12 +15,11 @@ export const TUNING = {
   GERM_E: 150,           // energy of a freshly germinated plant
   WATER_GAIN: 50,        // energy gained per water absorbed
   ABSORB_CAP: 220,       // raised: let roots get very pressurized
-  PUMP_THRESH: 80,       // plants above this push energy outward
-  PUMP_RATE: 12,         // energy pushed per step (constant flow)
-  GROW_COST_MIN: 35,     // cost at noise=1.0 (lowered)
-  GROW_COST_MAX: 100,    // cost at noise=0.0 (lowered)
-  CHILD_DIV: 2,          // child energy = parent/2
-  MIN_CHILD_E: 12,       // minimum viable child energy
+  FLOW_RATE: 32,         // max energy a plant cell pulls from its parent per step
+  STEM_RESERVE: 20,      // energy a stem keeps for itself; the rest flows on to the tips
+  GROW_COST_MIN: 35,     // energy a tip spends to grow, at noise=1.0
+  GROW_COST_MAX: 100,    // energy a tip spends to grow, at noise=0.0
+  BRANCH_ODDS: 12,       // 1 in N growths leaves the old tip as a tip too
   FIRE_RISE_COST: 4,     // extra lifetime lost when fire rises
   SMOKE_TRAIL_LIFE: 18,  // lifetime of smoke left by rising fire
   EMBER_LIFE: 200,       // starting lifetime of a drawn ember

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html><body style="background:#111;margin:0"><canvas id="cv"></canvas><pre id="out" style="color:#ccc">running...</pre>
+<script type="module">
+import { GRID_W, GRID_H, WORKGROUP, T, CMAP, makeCell } from '../src/config.js';
+import { simWGSL } from '../src/shaders/sim.wgsl.js';
+
+const N = GRID_W * GRID_H, W = GRID_W;
+const device = await (await navigator.gpu.requestAdapter()).requestDevice();
+const mod = device.createShaderModule({ code: simWGSL });
+const info = await mod.getCompilationInfo();
+for (const m of info.messages) console.log(`${m.type} L${m.lineNum}: ${m.message}`);
+const pipe = device.createComputePipeline({ layout: 'auto', compute: { module: mod, entryPoint: 'main' } });
+const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
+const grids = [0, 1].map(() => device.createBuffer({ size: N * 4, usage }));
+const pBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+const bgs = [[0, 1], [1, 0]].map(([a, b]) => device.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
+  { binding: 0, resource: { buffer: grids[a] } }, { binding: 1, resource: { buffer: grids[b] } }, { binding: 2, resource: { buffer: pBuf } }] }));
+const rb = device.createBuffer({ size: N * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+
+// ── Scenario ──
+const g = new Uint32Array(N);
+const carve = (x0, x1, y0, y1, cell = 0) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) g[y * W + x] = cell; };
+carve(20, 236, 200, 206, makeCell(T.STONE, 0, 0));           // floor
+carve(20, 26, 170, 200, makeCell(T.STONE, 0, 0)); carve(130, 136, 170, 200, makeCell(T.STONE, 0, 0)); // basin walls
+carve(26, 130, 180, 200, makeCell(T.WATER, 0, 0));           // pool
+carve(70, 76, 150, 152, makeCell(T.SEED, 0, 0));             // seeds dropping in
+grids.forEach(b => device.queue.writeBuffer(b, 0, g));
+
+async function read(buf) {
+  const e = device.createCommandEncoder(); e.copyBufferToBuffer(buf, 0, rb, 0, N * 4); device.queue.submit([e.finish()]);
+  await rb.mapAsync(GPUMapMode.READ); const a = new Uint32Array(rb.getMappedRange()).slice(); rb.unmap(); return a;
+}
+function stats(a) {
+  let water = 0, plantL = 0, plantR = 0, tips = 0, eL = 0, eR = 0;
+  for (let i = 0; i < N; i++) {
+    const t = a[i] & 255, x = i % W, y = Math.floor(i / W);
+    if (t === T.WATER) water++;
+    if (t === T.PLANT) {
+      const e = (a[i] >> 8) & 255;
+      if (y >= 180) { plantL++; eL += e; } else { plantR++; eR += e; }
+      if ((a[i] >> 16) & 4) tips++;
+    }
+  }
+  return `water ${String(water).padStart(5)} | plant in pool ${String(plantL).padStart(4)} (avg E ${(eL / Math.max(plantL, 1)).toFixed(0).padStart(3)}) | plant above pool ${String(plantR).padStart(5)} (avg E ${(eR / Math.max(plantR, 1)).toFixed(0).padStart(3)}) | tips ${tips}`;
+}
+const cv = document.getElementById('cv'), snaps = [0, 1500, 4000, 10000];
+cv.width = W * snaps.length; cv.height = GRID_H;
+const ctx = cv.getContext('2d'), img = ctx.createImageData(cv.width, cv.height);
+function draw(a, slot) {
+  for (let i = 0; i < N; i++) {
+    const t = a[i] & 255, e = (a[i] >> 8) & 255, v = (a[i] >> 16) & 255;
+    const cols = CMAP[t]; let c = cols[(v & 3) % cols.length].slice();
+    if (t === T.PLANT) { const k = 0.65 + 0.7 * e / 255; c = c.map(x => x * k); if (v & 4) c = [1, 1, 1]; }
+    const o = ((Math.floor(i / W)) * cv.width + slot * W + (i % W)) * 4;
+    img.data[o] = c[0] * 255; img.data[o + 1] = c[1] * 255; img.data[o + 2] = c[2] * 255; img.data[o + 3] = 255;
+  }
+}
+
+const out = [];
+let cur = 0, step = 0;
+for (let s = 0; s < snaps.length; s++) {
+  while (step < snaps[s]) {
+    device.queue.writeBuffer(pBuf, 0, new Uint32Array([GRID_W, GRID_H, step & 1, step, 8, 0, 0, 0]));
+    const e = device.createCommandEncoder(); const cp = e.beginComputePass();
+    cp.setPipeline(pipe); cp.setBindGroup(0, bgs[cur]); cp.dispatchWorkgroups(GRID_W / WORKGROUP, GRID_H / WORKGROUP); cp.end();
+    device.queue.submit([e.finish()]); cur = 1 - cur; step++;
+  }
+  const a = await read(grids[cur]);
+  out.push(`step ${String(step).padStart(5)}: ${stats(a)}`);
+  draw(a, s);
+}
+ctx.putImageData(img, 0, 0);
+document.getElementById('out').textContent = out.join('\n');
+console.log('DONE\n' + out.join('\n'));
+</script></body></html>

@@ -197,13 +197,14 @@ fn tick_smoke(cin: Cells, i:u32) -> Cells {
 }
 
 // SEED: germinate by consuming adjacent water (probability gate: 1/react)
+// The seed becomes the plant's first tip.
 fn tick_seed(cin: Cells, i:u32, b: Block) -> Cells {
   var c = cin;
   let germ_roll = (b.rng2 >> (8u + i * 2u)) % p.react;
   if (germ_roll == 0u) {
     for (var j = 0u; j < 4u; j = j + 1u) {
       if (j != i && gt(c[j]) == WATER) {
-        c[i] = mc(PLANT, GERM_E, noise_variant(cell_x(b.bx, i), cell_y(b.by, i)));
+        c[i] = mc(PLANT, GERM_E, noise_variant(cell_x(b.bx, i), cell_y(b.by, i)) | PLANT_TIP);
         c[j] = 0u;
         break;
       }
@@ -212,58 +213,86 @@ fn tick_seed(cin: Cells, i:u32, b: Block) -> Cells {
   return c;
 }
 
-// PLANT: energy-driven growth
+// ─── PLANT TREE LINKS ───
+// Each plant cell stores which orthogonal neighbor it grew from (its parent)
+// in variant bits 3-5: 0 none (root/seedling), 1 left, 2 right, 3 up, 4 down.
+// Orthogonal only: in Margolus, some diagonal pairs never share a block.
+fn parent_code(v:u32) -> u32 { return (v >> 3u) & 7u; }
+
+// Block slot of i's parent, or 4u if the parent isn't in this block this phase
+fn parent_slot(i:u32, code:u32) -> u32 {
+  let ix = i & 1u; let iy = i >> 1u;
+  if (code == 1u && ix == 1u) { return i ^ 1u; }
+  if (code == 2u && ix == 0u) { return i ^ 1u; }
+  if (code == 3u && iy == 1u) { return i ^ 2u; }
+  if (code == 4u && iy == 0u) { return i ^ 2u; }
+  return 4u;
+}
+
+// Link code stored in child, pointing at its orthogonal neighbor parent
+fn link_code(child:u32, parent:u32) -> u32 {
+  if ((child ^ parent) == 1u) {
+    if ((parent & 1u) < (child & 1u)) { return 1u; }
+    return 2u;
+  }
+  if ((parent >> 1u) < (child >> 1u)) { return 3u; }
+  return 4u;
+}
+
+// PLANT: a tree of cells. Tips (PLANT_TIP bit) are the only cells that grow.
+//   Any cell absorbs adjacent water. Every cell pulls its parent's energy
+//   above STEM_RESERVE toward itself, so energy flows root → tip like a pipe,
+//   however far the tips are from the water — non-local behavior from local rules.
 fn tick_plant(cin: Cells, i:u32, b: Block) -> Cells {
   var c = cin;
   var energy = gd(c[i]);
+  var v = gv(c[i]);
 
+  // Watering (probability gate: ~1/(react/2)): water → energy, cell left empty
   for (var j = 0u; j < 4u; j = j + 1u) {
-    if (j == i) { continue; }
-    let jt = gt(c[j]);
-
-    // Rule 2: Watering (probability gate: ~1/(react/2))
-    if (jt == WATER && energy < ABSORB_CAP) {
+    if (j != i && gt(c[j]) == WATER && energy < ABSORB_CAP) {
       let water_roll = (b.rng2 >> (16u + i)) % max(p.react / 2u, 2u);
       if (water_roll == 0u) {
         energy = min(energy + WATER_GAIN, 255u);
         c[j] = 0u;
       }
-      continue;
     }
+  }
 
-    // Rule 3: Pressure pump — energy flows like water through pipes
-    // Plants above PUMP_THRESH push a fixed amount to lower neighbors.
-    // Creates constant throughput, not equalization that stalls.
-    if (jt == PLANT) {
-      let je = gd(c[j]);
-      if (energy > PUMP_THRESH && energy > je) {
-        // Push up to PUMP_RATE, but never drop below threshold
-        let available = energy - PUMP_THRESH;
-        let room = 255u - je;
-        let push = min(PUMP_RATE, min(available, room));
-        energy = energy - push;
-        c[j] = mc(PLANT, je + push, gv(c[j]));
-      }
-      continue;
+  // Transport: pull parent's surplus toward the tips
+  let pj = parent_slot(i, parent_code(v));
+  if (pj < 4u && gt(c[pj]) == PLANT) {
+    let pe = gd(c[pj]);
+    if (pe > STEM_RESERVE) {
+      let flow = min(min(FLOW_RATE, pe - STEM_RESERVE), 255u - energy);
+      energy = energy + flow;
+      c[pj] = mc(PLANT, pe - flow, gv(c[pj]));
     }
+  }
 
-    // Rule 4: Growth — expand into empty cells or incorporate adjacent seeds
-    if ((jt == EMPTY || jt == SEED) && energy > GROW_COST_MIN) {
+  // Growth (tips only): try one orthogonal neighbor per step. Spending the
+  // noise-dependent cost claims it as the new tip; the old tip becomes stem
+  // unless it branches (1/BRANCH_ODDS).
+  if ((v & PLANT_TIP) != 0u) {
+    let gr = hh(b.bx * 13u + b.by * 7919u + p.frame * 101u + i * 7u);
+    var j = i ^ 1u;
+    if ((gr & 1u) == 1u) { j = i ^ 2u; }
+    let jt = gt(c[j]);
+    if (jt == EMPTY || jt == SEED) {
       let jx = cell_x(b.bx, j);
       let jy = cell_y(b.by, j);
-      let n = growth_noise(jx, jy);
-      let cost = GROW_COST_MIN + u32(f32(GROW_COST_MAX - GROW_COST_MIN) * (1.0 - n));
-      let child_e = energy / CHILD_DIV;
-      if (energy > cost && child_e >= MIN_CHILD_E) {
-        energy = energy - child_e;
-        c[j] = mc(PLANT, child_e, noise_variant(jx, jy));
+      let cost = GROW_COST_MIN + u32(f32(GROW_COST_MAX - GROW_COST_MIN) * (1.0 - growth_noise(jx, jy)));
+      if (energy >= cost + 2u) {
+        let rest = energy - cost;
+        energy = rest / 2u;
+        c[j] = mc(PLANT, rest - energy, noise_variant(jx, jy) | PLANT_TIP | (link_code(j, i) << 3u));
+        if (((gr >> 2u) % BRANCH_ODDS) != 0u) { v = v & ~PLANT_TIP; }
       }
     }
   }
 
-  // Rule 5: Metabolic cost — very slow drain without water
-  // 1/128 chance per step: a plant at energy 80 lasts ~10,000 steps (~55s at 3x)
-  // Only truly disconnected plants eventually die
+  // Metabolic cost — very slow drain (1/128 per step)
+  // Plants cut off from water eventually starve
   let metab_roll = (b.rng2 >> (24u + i)) & 127u;
   if (metab_roll == 0u && energy > 0u) {
     energy = energy - 1u;
@@ -273,7 +302,7 @@ fn tick_plant(cin: Cells, i:u32, b: Block) -> Cells {
   if (energy == 0u) {
     c[i] = 0u;
   } else {
-    c[i] = mc(PLANT, energy, gv(c[i]));
+    c[i] = mc(PLANT, energy, v);
   }
   return c;
 }

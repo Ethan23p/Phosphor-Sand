@@ -32,9 +32,25 @@ This starts the server plus a Cloudflare quick tunnel and prints an `https://…
 | `src/input.js` | Brush, pointer handling, toolbar wiring |
 | `src/debug.js` | On-page log, health dots, WGSL lint, compile-error reporting |
 
+## Plant model
+
+Plants are trees. Each plant cell stores which orthogonal neighbor it grew from (variant bits 3-5), and tips carry a flag (variant bit 2).
+
+- **Any** plant cell absorbs adjacent water as energy, leaving the cell empty.
+- **Every** cell pulls its parent's energy above `STEM_RESERVE`, so energy flows root → tip like a pipe.
+- **Only tips** grow: spending a noise-dependent cost to claim an orthogonal empty cell, which becomes the new tip (occasionally branching).
+
+So water absorbed at one end of a tunnel drives growth at the other. Growth is orthogonal only because in Margolus some diagonal neighbor pairs never share a block, which would break the link.
+
+Rendering: plant brightness tracks stored energy, tips show as bright cells.
+
+## Dev scenarios
+
+`dev/tunnel.html` (watered at one end, growing at the other) and `dev/pool.html` (seeds in a pool) run the sim headless-style on the GPU and show snapshots plus per-region counts. Open them through the server, e.g. http://localhost:8000/dev/tunnel.html.
+
 ## Cell encoding
 
-One `u32` per cell: `type | data << 8 | variant << 16`. `data` is per-type (fire/smoke/ember lifetime, plant energy). `variant` (0–3) picks a color.
+One `u32` per cell: `type | data << 8 | variant << 16`. `data` is per-type (fire/smoke/ember lifetime, plant energy). `variant` bits 0-1 pick a color; plants also use bit 2 (tip) and bits 3-5 (parent link).
 
 ## Adding a particle type
 
