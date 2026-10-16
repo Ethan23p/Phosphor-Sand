@@ -59,7 +59,7 @@ fn gc(cell: u32) -> vec3f {
   }
   // Plant: brightness tracks stored energy, tips highlighted
   if (gt(cell) == PLANT) {
-    col = col * (0.65 + 0.7 * f32(gd(cell)) / 255.0);
+    col = col * (0.6 + 0.8 * min(f32(gd(cell)) / f32(TIP_CAP), 1.0));
     if ((gv(cell) & PLANT_TIP) != 0u) { col = mix(col, vec3f(1.0), 0.4); }
   }
   // Ember glow: gentle pulse

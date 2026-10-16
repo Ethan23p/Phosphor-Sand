@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>elements scenario</title></head>
+<body style="background:#111;color:#ccc;margin:8px;font:12px monospace"><pre id="out">running...</pre>
+<script type="module">
+import { createHarness, blankGrid, fill, T, makeCell, W, stats } from './harness.js';
+// Fire vs water, ember into a pool, sand sinking into water, smoke drift.
+const h = await createHarness();
+const g = blankGrid();
+fill(g, 0, W, 240, 246, makeCell(T.STONE, 0, 0));
+fill(g, 10, 120, 200, 240, makeCell(T.WATER, 0, 0));     // left pool
+fill(g, 130, 136, 200, 240, makeCell(T.STONE, 0, 0));    // divider
+fill(g, 136, 250, 200, 240, makeCell(T.WATER, 0, 0));    // right pool
+fill(g, 20, 110, 150, 160, makeCell(T.SAND, 0, 1));      // sand slab above left pool
+h.load(g);
+const fire = s => {
+  if (s < 360 && s % 6 === 0) h.brush({ x0: 150, y0: 196, x1: 240, y1: 196, r: 3, type: T.FIRE, density: 200 }); // fire on water
+  if (s === 0) h.brush({ x0: 190, y0: 120, x1: 200, y1: 120, r: 3, type: T.EMBER, density: 256 });                // embers drop in
+  if (s < 180 && s % 4 === 0) h.brush({ x0: 60, y0: 60, r: 5, type: T.FIRE, density: 200 });                    // open-air fire (smoke)
+};
+await h.snapshot();
+for (const t of [90, 270, 540, 1080, 2160]) { h.run(t - h.step, fire); await h.snapshot(); }
+h.finish('elements: fire on water, embers into water, sand sinking, smoke');
+</script></body></html>

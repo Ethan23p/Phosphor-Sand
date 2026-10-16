@@ -1,8 +1,9 @@
-import { GRID_W, GRID_H, WORKGROUP, T, P, makeCell } from './config.js';
+import { GRID_W, GRID_H, WORKGROUP, T, P, TOOLS, makeCell } from './config.js';
 import { dbg, showSimError, setHealth, validateWGSL, checkShader } from './debug.js';
-import { cpuBrush, attachPointer, attachToolbar } from './input.js';
+import { attachPointer, attachToolbar } from './input.js';
 import { simWGSL } from './shaders/sim.wgsl.js';
 import { renWGSL } from './shaders/render.wgsl.js';
+import { brushWGSL } from './shaders/brush.wgsl.js';
 
 const N = GRID_W * GRID_H;
 
@@ -27,15 +28,18 @@ async function initGPU() {
 }
 
 // ── Pipelines + bind groups. Ping-pong: index `cur` reads grids[cur], writes grids[1-cur] ──
-async function buildPipelines(device, fmt, grids, paramBuf) {
+async function buildPipelines(device, fmt, grids, paramBuf, brushBuf) {
   validateWGSL(simWGSL, 'sim');
   validateWGSL(renWGSL, 'render');
+  validateWGSL(brushWGSL, 'brush');
 
   dbg('Compiling shaders...');
   const simMod = device.createShaderModule({ code: simWGSL });
   const simErrors = await checkShader(simMod, 'sim');
   const renMod = device.createShaderModule({ code: renWGSL });
   const renErrors = await checkShader(renMod, 'render');
+  const brushMod = device.createShaderModule({ code: brushWGSL });
+  const brushErrors = await checkShader(brushMod, 'brush');
 
   const sBGL = device.createBindGroupLayout({ entries: [
     { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
@@ -92,7 +96,19 @@ async function buildPipelines(device, fmt, grids, paramBuf) {
     { binding: 1, resource: { buffer: paramBuf } },
   ]}));
 
-  return { simPipe, renPipe, sBGs, rBGs };
+  // Brush: edits a grid in place, so one bind group per grid
+  let brushPipe = null, bBGs = [];
+  if (brushErrors.length === 0) {
+    brushPipe = await device.createComputePipelineAsync({ layout: 'auto', compute: { module: brushMod, entryPoint: 'main' } });
+    bBGs = grids.map(g => device.createBindGroup({ layout: brushPipe.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: g } },
+      { binding: 1, resource: { buffer: brushBuf } },
+      { binding: 2, resource: { buffer: paramBuf } },
+    ]}));
+    dbg('Brush pipeline OK');
+  }
+
+  return { simPipe, renPipe, brushPipe, sBGs, rBGs, bBGs };
 }
 
 function testPattern() {
@@ -117,10 +133,13 @@ async function main() {
     device.createBuffer({ size: N * 4, usage: gridUsage }),
     device.createBuffer({ size: N * 4, usage: gridUsage }),
   ];
-  const params = new Uint32Array([GRID_W, GRID_H, 0, 0, 8, 0, 0, 0]); // w,h,phase,frame,react,pad,pad,pad
+  const params = new Uint32Array([GRID_W, GRID_H, 0, 0, 0, 0, 0, 0]); // w,h,phase,frame,pad...
   const paramBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  // Brush uniform: a.xy, b.xy, r (f32) | cell_type, density, seed (u32)
+  const brushData = new ArrayBuffer(32), brushF = new Float32Array(brushData), brushU = new Uint32Array(brushData);
+  const brushBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
-  const { simPipe, renPipe, sBGs, rBGs } = await buildPipelines(device, fmt, grids, paramBuf);
+  const { simPipe, renPipe, brushPipe, sBGs, rBGs, bBGs } = await buildPipelines(device, fmt, grids, paramBuf, brushBuf);
   if (!renPipe) {
     dbg('FATAL: render pipeline failed — nothing to display', true);
     return;
@@ -133,8 +152,8 @@ async function main() {
   // ── State (mutated by input handlers) ──
   const state = {
     cur: 0, step: 0, paused: false,
-    selType: T.SAND, bRad: 3, spf: 3, reactRate: 8,
-    pDown: false, pGrid: null, pEvts: 0,
+    tool: TOOLS[0], bRad: 3, spf: 3,
+    pDown: false, pGrid: null, segs: [], pEvts: 0,
   };
   attachPointer(canvas, state);
   attachToolbar(state, { onClear: () => {
@@ -146,28 +165,41 @@ async function main() {
   function writeParams() {
     params[2] = state.step & 1;
     params[3] = state.step;
-    params[4] = state.reactRate;
     device.queue.writeBuffer(paramBuf, 0, params);
   }
 
   // ── Frame loop ──
   const dX = Math.ceil(GRID_W / WORKGROUP), dY = Math.ceil(GRID_H / WORKGROUP);
   const stEl = document.getElementById('status');
-  let fc = 0, lt = performance.now();
+  let fc = 0, lt = performance.now(), brushSeed = 1;
 
   function frame() {
     fc++;
     const now = performance.now();
     if (now - lt >= 1000) {
       const sim = simPipe ? '●' : '○';
-      const pi = state.pDown ? ` ptr(${state.pGrid?.[0]},${state.pGrid?.[1]})` : '';
-      stEl.textContent = `${fc}fps ${sim}step:${state.step} ${state.spf}x r:1/${state.reactRate}${pi} evts:${state.pEvts}`;
+      const pi = state.pDown ? ` ptr(${state.pGrid[0] | 0},${state.pGrid[1] | 0})` : '';
+      stEl.textContent = `${fc}fps ${sim}step:${state.step} ${state.spf}x${pi} evts:${state.pEvts}`;
       fc = 0; lt = now;
     }
 
-    // Brush
-    if (state.pDown && state.pGrid) {
-      cpuBrush(device, grids[state.cur], state.pGrid[0], state.pGrid[1], state.bRad, state.selType, state.step);
+    // Brush: draw every queued pointer segment as a capsule; holding still keeps pouring
+    if (brushPipe) {
+      if (state.segs.length === 0 && state.pDown) state.segs.push([state.pGrid, state.pGrid]);
+      for (const [a, b] of state.segs) {
+        brushF.set([a[0], a[1], b[0], b[1], state.bRad + 0.5]);
+        brushU[5] = state.tool.type; brushU[6] = state.tool.density; brushU[7] = brushSeed++;
+        device.queue.writeBuffer(brushBuf, 0, brushData);
+        writeParams();
+        const enc = device.createCommandEncoder();
+        const bp = enc.beginComputePass();
+        bp.setPipeline(brushPipe);
+        bp.setBindGroup(0, bBGs[state.cur]);
+        bp.dispatchWorkgroups(dX, dY);
+        bp.end();
+        device.queue.submit([enc.finish()]);
+      }
+      state.segs.length = 0;
     }
 
     // Sim

@@ -24,14 +24,9 @@ struct Block { bx:u32, by:u32, rng:u32, rng2:u32 }
 
 fn idx(x:u32, y:u32) -> u32 { return y * p.w + x; }
 
-fn hh(xi:u32) -> u32 {
-  var h = xi;
-  h = h ^ (h >> 16u);
-  h = h * 0x45d9f3bu;
-  h = h ^ (h >> 16u);
-  h = h * 0x45d9f3bu;
-  h = h ^ (h >> 16u);
-  return h;
+// Independent random stream per (block, slot, purpose). Use a distinct salt per roll.
+fn roll(b: Block, i:u32, salt:u32) -> u32 {
+  return hh(b.rng2 + i * 0x9E3779B9u + salt * 0x85EBCA6Bu);
 }
 
 // ─── NOISE ───
@@ -67,21 +62,40 @@ fn noise_variant(cx:u32, cy:u32) -> u32 {
 }
 
 // ─── HELPERS ───
-fn fl(c:u32) -> bool { let t = gt(c); return t == SAND || t == WATER || t == SEED; }
+fn heavy(c:u32) -> bool { let t = gt(c); return t == SAND || t == SEED || t == EMBER; }
+fn fl(c:u32) -> bool { return heavy(c) || gt(c) == WATER; }
 fn em(c:u32) -> bool { return gt(c) == EMPTY; }
 fn lq(c:u32) -> bool { return gt(c) == WATER; }
 fn is_fire(c:u32) -> bool { return gt(c) == FIRE; }
-fn disp(mover:u32, dest:u32) -> bool {
+// Can mover fall into dest? Heavy particles sink through water only when
+// this block's sink bit is set (~half the steps), so they sink at half speed.
+fn disp(mover:u32, dest:u32, sink:bool) -> bool {
   if (em(dest)) { return true; }
-  return (gt(mover) == SAND || gt(mover) == SEED) && gt(dest) == WATER;
+  return sink && heavy(mover) && lq(dest);
 }
-fn rises(c:u32) -> bool { return gt(c) == SMOKE; }
+fn gas(c:u32) -> bool { let t = gt(c); return t == SMOKE || t == STEAM; }
+// Gases rise into empty space; steam also bubbles up through water
+fn rises_into(g:u32, above:u32) -> bool { return em(above) || (gt(g) == STEAM && lq(above)); }
 fn burns(c:u32) -> bool { let t = gt(c); return t == PLANT || t == SEED; }
 fn sw(cells: ptr<function, Cells>, a:u32, b:u32) {
   let tmp = (*cells)[a]; (*cells)[a] = (*cells)[b]; (*cells)[b] = tmp;
 }
 fn cell_x(bx:u32, li:u32) -> u32 { return bx + (li & 1u); }
 fn cell_y(by:u32, li:u32) -> u32 { return by + (li >> 1u); }
+
+// A neighbor of slot i holding type t, scanning from a random start (no
+// direction bias); 4u if none
+fn find_neighbor(c: Cells, i:u32, t:u32, r:u32) -> u32 {
+  for (var k = 0u; k < 4u; k = k + 1u) {
+    let j = (r + k) & 3u;
+    if (j != i && gt(c[j]) == t) { return j; }
+  }
+  return 4u;
+}
+
+fn steam_cell(r:u32) -> u32 {
+  return mc(STEAM, STEAM_LIFE_MIN + r % STEAM_LIFE_VAR, (r >> 8u) & 3u);
+}
 
 // Fire variant brightens as it burns down
 fn fire_variant(life:u32) -> u32 {
@@ -101,29 +115,41 @@ fn rise_fire(cells: ptr<function, Cells>, src:u32, dst:u32) {
 }
 
 // ═══════════════════════════════════════════
-//  PHASE 1: MOVEMENT
+//  PHASE 1: MOVEMENT (swaps only — conserves every particle)
 // ═══════════════════════════════════════════
 fn movement(cin: Cells, rng:u32) -> Cells {
   var c = cin;
+  let sink = ((rng >> 9u) & 1u) == 0u;
 
   // Gravity straight
-  if (fl(c[0]) && disp(c[0], c[2])) { sw(&c, 0u, 2u); }
-  if (fl(c[1]) && disp(c[1], c[3])) { sw(&c, 1u, 3u); }
+  if (fl(c[0]) && disp(c[0], c[2], sink)) { sw(&c, 0u, 2u); }
+  if (fl(c[1]) && disp(c[1], c[3], sink)) { sw(&c, 1u, 3u); }
 
   // Gravity diagonal
   if ((rng & 1u) == 0u) {
-    if (fl(c[0]) && !disp(c[0], c[2]) && disp(c[0], c[3]) && !fl(c[1])) { sw(&c, 0u, 3u); }
-    if (fl(c[1]) && !disp(c[1], c[3]) && disp(c[1], c[2]) && !fl(c[0])) { sw(&c, 1u, 2u); }
+    if (fl(c[0]) && !disp(c[0], c[2], sink) && disp(c[0], c[3], sink) && !fl(c[1])) { sw(&c, 0u, 3u); }
+    if (fl(c[1]) && !disp(c[1], c[3], sink) && disp(c[1], c[2], sink) && !fl(c[0])) { sw(&c, 1u, 2u); }
   } else {
-    if (fl(c[1]) && !disp(c[1], c[3]) && disp(c[1], c[2]) && !fl(c[0])) { sw(&c, 1u, 2u); }
-    if (fl(c[0]) && !disp(c[0], c[2]) && disp(c[0], c[3]) && !fl(c[1])) { sw(&c, 0u, 3u); }
+    if (fl(c[1]) && !disp(c[1], c[3], sink) && disp(c[1], c[2], sink) && !fl(c[0])) { sw(&c, 1u, 2u); }
+    if (fl(c[0]) && !disp(c[0], c[2], sink) && disp(c[0], c[3], sink) && !fl(c[1])) { sw(&c, 0u, 3u); }
   }
 
-  // Smoke rises
-  if (rises(c[2]) && em(c[0])) { sw(&c, 2u, 0u); }
-  if (rises(c[3]) && em(c[1])) { sw(&c, 3u, 1u); }
-  if (rises(c[2]) && !em(c[0]) && em(c[1]) && ((rng >> 2u) & 1u) == 0u) { sw(&c, 2u, 1u); }
-  if (rises(c[3]) && !em(c[1]) && em(c[0]) && ((rng >> 3u) & 1u) == 0u) { sw(&c, 3u, 0u); }
+  // Gases rise
+  if (gas(c[2]) && rises_into(c[2], c[0])) { sw(&c, 2u, 0u); }
+  if (gas(c[3]) && rises_into(c[3], c[1])) { sw(&c, 3u, 1u); }
+  if (gas(c[2]) && !rises_into(c[2], c[0]) && rises_into(c[2], c[1]) && ((rng >> 2u) & 1u) == 0u) { sw(&c, 2u, 1u); }
+  if (gas(c[3]) && !rises_into(c[3], c[1]) && rises_into(c[3], c[0]) && ((rng >> 3u) & 1u) == 0u) { sw(&c, 3u, 0u); }
+
+  // Gases drift sideways (1/4 of steps, random direction)
+  if (((rng >> 10u) & 3u) == 0u) {
+    if (((rng >> 12u) & 1u) == 0u) {
+      if (gas(c[0]) && em(c[1])) { sw(&c, 0u, 1u); }
+      if (gas(c[2]) && em(c[3])) { sw(&c, 2u, 3u); }
+    } else {
+      if (gas(c[1]) && em(c[0])) { sw(&c, 1u, 0u); }
+      if (gas(c[3]) && em(c[2])) { sw(&c, 3u, 2u); }
+    }
+  }
 
   // Water lateral spread
   let sd = (rng >> 4u) & 1u;
@@ -153,34 +179,43 @@ fn movement(cin: Cells, rng:u32) -> Cells {
 }
 
 // ═══════════════════════════════════════════
-//  PHASE 2: INTERACTIONS (with probability gates)
+//  PHASE 2: INTERACTIONS
 //  One tick_* per type; each updates cell i and may touch neighbors.
 // ═══════════════════════════════════════════
 
-// FIRE: ignite neighbors, decay into smoke
+// FIRE: quenched by water, ignites neighbors, decays into smoke
 fn tick_fire(cin: Cells, i:u32, b: Block) -> Cells {
   var c = cin;
   let life = gd(c[i]);
 
-  // Ignite flammable neighbors (probability gate: 1/react)
-  let ignite_roll = (b.rng2 >> (i * 3u)) % p.react;
-  if (ignite_roll == 0u) {
+  // Quench: a touching water cell flashes to steam and the fire goes out
+  if ((roll(b, i, 11u) % QUENCH_ODDS) == 0u) {
+    let j = find_neighbor(c, i, WATER, roll(b, i, 12u));
+    if (j < 4u) {
+      c[j] = steam_cell(roll(b, i, 13u));
+      c[i] = 0u;
+      return c;
+    }
+  }
+
+  // Ignite flammable neighbors
+  if ((roll(b, i, 10u) % IGNITE_ODDS) == 0u) {
     for (var j = 0u; j < 4u; j = j + 1u) {
       if (j != i && burns(c[j])) {
         var fl_life = 0u;
         if (gt(c[j]) == PLANT) {
           fl_life = gd(c[j]) / 3u + 20u; // plant energy → fire life
         } else {
-          fl_life = 50u + (hh(b.bx * 3u + b.by * 7u + j + p.frame) % 40u);
+          fl_life = 50u + (roll(b, j, 14u) % 40u);
         }
-        c[j] = mc(FIRE, fl_life, hh(b.bx + j * 97u + p.frame * 13u) & 3u);
+        c[j] = mc(FIRE, fl_life, roll(b, j, 15u) & 3u);
       }
     }
   }
 
   // Decay
   if (life <= 1u) {
-    c[i] = mc(SMOKE, 30u + ((b.rng >> 8u) % 30u), gv(c[i]));
+    c[i] = mc(SMOKE, 30u + (roll(b, i, 16u) % 30u), gv(c[i]));
   } else {
     c[i] = mc(FIRE, life - 1u, fire_variant(life));
   }
@@ -196,144 +231,174 @@ fn tick_smoke(cin: Cells, i:u32) -> Cells {
   return c;
 }
 
-// SEED: germinate by consuming adjacent water (probability gate: 1/react)
-// The seed becomes the plant's first tip.
+// STEAM: slow decay, then condenses back into water (falls as rain)
+fn tick_steam(cin: Cells, i:u32, b: Block) -> Cells {
+  var c = cin;
+  if ((roll(b, i, 17u) & 3u) == 0u) {
+    let life = gd(c[i]);
+    if (life <= 1u) { c[i] = mc(WATER, 0u, roll(b, i, 18u) & 3u); }
+    else { c[i] = mc(STEAM, life - 1u, gv(c[i])); }
+  }
+  return c;
+}
+
+// SEED: germinate by consuming adjacent water; the seed becomes the plant's first tip
 fn tick_seed(cin: Cells, i:u32, b: Block) -> Cells {
   var c = cin;
-  let germ_roll = (b.rng2 >> (8u + i * 2u)) % p.react;
-  if (germ_roll == 0u) {
-    for (var j = 0u; j < 4u; j = j + 1u) {
-      if (j != i && gt(c[j]) == WATER) {
-        c[i] = mc(PLANT, GERM_E, noise_variant(cell_x(b.bx, i), cell_y(b.by, i)) | PLANT_TIP);
-        c[j] = 0u;
-        break;
-      }
+  if ((roll(b, i, 20u) % GERM_ODDS) == 0u) {
+    let j = find_neighbor(c, i, WATER, roll(b, i, 21u));
+    if (j < 4u) {
+      c[i] = mc(PLANT, GERM_E, noise_variant(cell_x(b.bx, i), cell_y(b.by, i)) | PLANT_TIP);
+      c[j] = 0u;
     }
   }
   return c;
 }
 
 // ─── PLANT TREE LINKS ───
-// Each plant cell stores which orthogonal neighbor it grew from (its parent)
-// in variant bits 3-5: 0 none (root/seedling), 1 left, 2 right, 3 up, 4 down.
-// Orthogonal only: in Margolus, some diagonal pairs never share a block.
+// Directions: 1 left, 2 right, 3 up, 4 down. Each plant cell stores the
+// direction of the neighbor it grew from (its parent) in variant bits 3-5;
+// 0 means none (a seedling/root). Orthogonal only: in Margolus, some diagonal
+// pairs never share a block.
+const DIR_UP:u32 = 3u;
 fn parent_code(v:u32) -> u32 { return (v >> 3u) & 7u; }
+fn opposite(d:u32) -> u32 { return ((d - 1u) ^ 1u) + 1u; }
 
-// Block slot of i's parent, or 4u if the parent isn't in this block this phase
-fn parent_slot(i:u32, code:u32) -> u32 {
+// Block slot of i's neighbor in direction d, or 4u if it isn't in this block this phase
+fn dir_slot(i:u32, d:u32) -> u32 {
   let ix = i & 1u; let iy = i >> 1u;
-  if (code == 1u && ix == 1u) { return i ^ 1u; }
-  if (code == 2u && ix == 0u) { return i ^ 1u; }
-  if (code == 3u && iy == 1u) { return i ^ 2u; }
-  if (code == 4u && iy == 0u) { return i ^ 2u; }
+  if (d == 1u && ix == 1u) { return i ^ 1u; }
+  if (d == 2u && ix == 0u) { return i ^ 1u; }
+  if (d == 3u && iy == 1u) { return i ^ 2u; }
+  if (d == 4u && iy == 0u) { return i ^ 2u; }
   return 4u;
 }
 
-// Link code stored in child, pointing at its orthogonal neighbor parent
-fn link_code(child:u32, parent:u32) -> u32 {
-  if ((child ^ parent) == 1u) {
-    if ((parent & 1u) < (child & 1u)) { return 1u; }
-    return 2u;
+// Weighted growth direction: forward (away from parent) strongly preferred,
+// then up; sideways 2, down 1, back 0. Sampled independently of the Margolus
+// phase, so a direction that isn't in this block just means "wait".
+fn pick_dir(back:u32, r:u32) -> u32 {
+  var fwd = DIR_UP;
+  if (back != 0u) { fwd = opposite(back); }
+  var w = array<u32, 5>(0u, 2u, 2u, 2u + UP_BIAS, 1u);
+  w[fwd] = w[fwd] + FORWARD_BIAS;
+  w[back] = 0u;
+  var x = r % (w[1] + w[2] + w[3] + w[4]);
+  for (var d = 1u; d <= 4u; d = d + 1u) {
+    if (x < w[d]) { return d; }
+    x = x - w[d];
   }
-  if ((parent >> 1u) < (child >> 1u)) { return 3u; }
-  return 4u;
+  return 0u;
 }
 
-// PLANT: a tree of cells. Tips (PLANT_TIP bit) are the only cells that grow.
-//   Any cell absorbs adjacent water. Every cell pulls its parent's energy
-//   above STEM_RESERVE toward itself, so energy flows root → tip like a pipe,
-//   however far the tips are from the water — non-local behavior from local rules.
+// PLANT: a tree of cells. Energy enters wherever the plant touches water and
+// flows root → tip: every cell pulls its parent's surplus above STEM_RESERVE.
+// Stems stop pulling at STEM_CAP so energy passes through them; tips bank up
+// to TIP_CAP and spend it growing. Non-local behavior from local rules.
 fn tick_plant(cin: Cells, i:u32, b: Block) -> Cells {
   var c = cin;
   var energy = gd(c[i]);
   var v = gv(c[i]);
+  let tip = (v & PLANT_TIP) != 0u;
+  var cap = STEM_CAP;
+  if (tip) { cap = TIP_CAP; }
 
-  // Watering (probability gate: ~1/(react/2)): water → energy, cell left empty
-  for (var j = 0u; j < 4u; j = j + 1u) {
-    if (j != i && gt(c[j]) == WATER && energy < ABSORB_CAP) {
-      let water_roll = (b.rng2 >> (16u + i)) % max(p.react / 2u, 2u);
-      if (water_roll == 0u) {
-        energy = min(energy + WATER_GAIN, 255u);
-        c[j] = 0u;
-      }
+  // Drink: occasionally absorb one adjacent water, unless already full
+  if (energy < cap && (roll(b, i, 30u) % ABSORB_ODDS) == 0u) {
+    let j = find_neighbor(c, i, WATER, roll(b, i, 31u));
+    if (j < 4u) {
+      energy = min(energy + WATER_GAIN, 255u);
+      c[j] = 0u;
     }
   }
 
   // Transport: pull parent's surplus toward the tips
-  let pj = parent_slot(i, parent_code(v));
-  if (pj < 4u && gt(c[pj]) == PLANT) {
+  let pj = dir_slot(i, parent_code(v));
+  if (pj < 4u && gt(c[pj]) == PLANT && energy < cap) {
     let pe = gd(c[pj]);
     if (pe > STEM_RESERVE) {
-      let flow = min(min(FLOW_RATE, pe - STEM_RESERVE), 255u - energy);
+      let flow = min(min(FLOW_RATE, pe - STEM_RESERVE), cap - energy);
       energy = energy + flow;
       c[pj] = mc(PLANT, pe - flow, gv(c[pj]));
     }
   }
 
-  // Growth (tips only): try one orthogonal neighbor per step. Spending the
-  // noise-dependent cost claims it as the new tip; the old tip becomes stem
-  // unless it branches (1/BRANCH_ODDS).
-  if ((v & PLANT_TIP) != 0u) {
-    let gr = hh(b.bx * 13u + b.by * 7919u + p.frame * 101u + i * 7u);
-    var j = i ^ 1u;
-    if ((gr & 1u) == 1u) { j = i ^ 2u; }
-    let jt = gt(c[j]);
-    if (jt == EMPTY || jt == SEED) {
-      let jx = cell_x(b.bx, j);
-      let jy = cell_y(b.by, j);
-      let cost = GROW_COST_MIN + u32(f32(GROW_COST_MAX - GROW_COST_MIN) * (1.0 - growth_noise(jx, jy)));
-      if (energy >= cost + 2u) {
-        let rest = energy - cost;
-        energy = rest / 2u;
-        c[j] = mc(PLANT, rest - energy, noise_variant(jx, jy) | PLANT_TIP | (link_code(j, i) << 3u));
-        if (((gr >> 2u) % BRANCH_ODDS) != 0u) { v = v & ~PLANT_TIP; }
+  // Growth: tips try every ~GROW_ODDS steps; full stems occasionally bud.
+  // Claiming a cell costs noise-dependent energy; the new cell is a tip.
+  let gr = roll(b, i, 32u);
+  var attempt = false;
+  if (tip) { attempt = (gr % GROW_ODDS) == 0u; }
+  else { attempt = energy >= STEM_CAP && (gr % BUD_ODDS) == 0u; }
+  if (attempt) {
+    let d = pick_dir(parent_code(v), roll(b, i, 33u));
+    let j = dir_slot(i, d);
+    if (j < 4u) {
+      let jt = gt(c[j]);
+      // Tips can also grow into water, drinking it as they go (no drowning)
+      if (jt == EMPTY || jt == SEED || (tip && jt == WATER)) {
+        let jx = cell_x(b.bx, j);
+        let jy = cell_y(b.by, j);
+        let cost = GROW_COST_MIN + u32(f32(GROW_COST_MAX - GROW_COST_MIN) * (1.0 - growth_noise(jx, jy)));
+        if (jt == WATER) { energy = min(energy + WATER_GAIN, 255u); }
+        if (energy >= cost + GROW_KEEP) {
+          let rest = energy - cost;
+          energy = rest / 2u;
+          c[j] = mc(PLANT, rest - energy, noise_variant(jx, jy) | PLANT_TIP | (opposite(d) << 3u));
+          if (tip && ((gr >> 8u) % BRANCH_ODDS) != 0u) { v = v & ~PLANT_TIP; }
+        }
+      } else if (tip && ((gr >> 16u) % RETIRE_ODDS) == 0u) {
+        v = v & ~PLANT_TIP; // blocked: give up, let energy go elsewhere
       }
     }
   }
 
-  // Metabolic cost — very slow drain (1/128 per step)
-  // Plants cut off from water eventually starve
-  let metab_roll = (b.rng2 >> (24u + i)) & 127u;
-  if (metab_roll == 0u && energy > 0u) {
+  // Metabolism: every cell slowly burns energy
+  if ((roll(b, i, 34u) % METAB_ODDS) == 0u && energy > 0u) {
     energy = energy - 1u;
   }
 
-  // Death: plants with no energy become empty
+  // Starved cells die, occasionally leaving a seed
   if (energy == 0u) {
-    c[i] = 0u;
+    if ((roll(b, i, 35u) % SEED_DROP_ODDS) == 0u) { c[i] = mc(SEED, 0u, roll(b, i, 36u) & 3u); }
+    else { c[i] = 0u; }
   } else {
     c[i] = mc(PLANT, energy, v);
   }
   return c;
 }
 
-// EMBER: static, periodically flares up with fire
+// EMBER: falls like sand, sparks now and then, boils water it touches
 fn tick_ember(cin: Cells, i:u32, b: Block) -> Cells {
   var c = cin;
   let elife = gd(c[i]);
 
-  // Flare: spawn short-lived fire in an adjacent empty cell (~1/128 per step)
-  let flare_roll = hh(b.bx * 53u + b.by * 127u + p.frame * 997u + i * 31u) & 127u;
-  if (flare_roll == 0u) {
-    for (var j = 0u; j < 4u; j = j + 1u) {
-      if (j != i && em(c[j])) {
-        // Short fire: life 15-25, looks like a spark
-        let spark_life = 15u + (hh(b.bx + j * 97u + p.frame) % 11u);
-        c[j] = mc(FIRE, spark_life, hh(b.bx * 7u + j + p.frame) & 3u);
-        break;
-      }
+  // Quench: touching water flashes to steam and costs the ember heat
+  if ((roll(b, i, 40u) % QUENCH_ODDS) == 0u) {
+    let j = find_neighbor(c, i, WATER, roll(b, i, 41u));
+    if (j < 4u) {
+      c[j] = steam_cell(roll(b, i, 42u));
+      if (elife <= EMBER_QUENCH) { c[i] = 0u; }
+      else { c[i] = mc(EMBER, elife - EMBER_QUENCH, gv(c[i])); }
+      return c;
+    }
+  }
+
+  // Flare: spawn a short-lived spark in a random empty neighbor (~1/128 per step)
+  if ((roll(b, i, 43u) & 127u) == 0u) {
+    let j = find_neighbor(c, i, EMPTY, roll(b, i, 44u));
+    if (j < 4u) {
+      let r = roll(b, j, 45u);
+      c[j] = mc(FIRE, 15u + r % 11u, (r >> 8u) & 3u);
     }
   }
 
   // Slow decay: 1/128 per step. Lifetime 200 lasts ~25,600 steps (~142s at 3x)
-  let edecay = hh(b.bx * 31u + b.by * 53u + p.frame * 71u + i * 13u) & 127u;
-  if (edecay == 0u && elife > 0u) {
+  if ((roll(b, i, 46u) & 127u) == 0u && elife > 0u) {
     if (elife <= 1u) {
       c[i] = 0u; // ember burns out
     } else {
       // Variant pulses slowly based on remaining lifetime
-      let ev = (elife / 50u) & 3u;
-      c[i] = mc(EMBER, elife - 1u, ev);
+      c[i] = mc(EMBER, elife - 1u, (elife / 50u) & 3u);
     }
   }
   return c;
@@ -348,6 +413,11 @@ fn tick_ember(cin: Cells, i:u32, b: Block) -> Cells {
 fn convection(cin: Cells, b: Block) -> Cells {
   var c = cin;
   let fire_rng = hh(b.bx * 997u + b.by * 127u + p.frame * 53u);
+
+  // Flicker: occasionally rise diagonally even when straight up is open
+  let wob = (fire_rng >> 9u) & 7u;
+  if (is_fire(c[2]) && em(c[1]) && wob == 0u) { rise_fire(&c, 2u, 1u); }
+  if (is_fire(c[3]) && em(c[0]) && wob == 1u) { rise_fire(&c, 3u, 0u); }
 
   // Fire rises: BL→TL, BR→TR (50% probability each)
   if (is_fire(c[2]) && em(c[0]) && (fire_rng & 1u) == 0u)         { rise_fire(&c, 2u, 0u); }
@@ -400,16 +470,20 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   let b = Block(
     bx, by,
     hh(bx * 65537u + by * 251u + p.frame * 31u),
-    // Secondary rng for probability gates (uncorrelated bits)
+    // Secondary rng, seeds roll() for per-cell probability gates
     hh(bx * 31u + by * 65537u + p.frame * 7919u),
   );
 
   c = movement(c, b.rng);
 
-  for (var i = 0u; i < 4u; i = i + 1u) {
+  // Visit cells starting from a random slot so no position always acts first
+  let start = hh(b.rng ^ 0x5bd1e995u) & 3u;
+  for (var k = 0u; k < 4u; k = k + 1u) {
+    let i = (start + k) & 3u;
     let t = gt(c[i]);
     if (t == FIRE)       { c = tick_fire(c, i, b); }
     else if (t == SMOKE) { c = tick_smoke(c, i); }
+    else if (t == STEAM) { c = tick_steam(c, i, b); }
     else if (t == SEED)  { c = tick_seed(c, i, b); }
     else if (t == PLANT) { c = tick_plant(c, i, b); }
     else if (t == EMBER) { c = tick_ember(c, i, b); }

@@ -36,17 +36,27 @@ This starts the server plus a Cloudflare quick tunnel and prints an `https://…
 
 Plants are trees. Each plant cell stores which orthogonal neighbor it grew from (variant bits 3-5), and tips carry a flag (variant bit 2).
 
-- **Any** plant cell absorbs adjacent water as energy, leaving the cell empty.
-- **Every** cell pulls its parent's energy above `STEM_RESERVE`, so energy flows root → tip like a pipe.
-- **Only tips** grow: spending a noise-dependent cost to claim an orthogonal empty cell, which becomes the new tip (occasionally branching).
+- **Drinking:** any cell below its cap occasionally absorbs one adjacent water.
+- **Transport:** every cell pulls its parent's energy above `STEM_RESERVE`. Stems stop at `STEM_CAP`, so energy passes through them; tips bank up to `TIP_CAP`.
+- **Growth:** tips try every ~`GROW_ODDS` steps, preferring to continue forward, then up. Growing into a cell (empty, seed, or water, which is drunk) costs noise-dependent energy. Blocked tips sometimes retire; full stems rarely bud.
+- **Death:** every cell burns energy slowly; starved cells vanish, occasionally leaving a seed.
 
-So water absorbed at one end of a tunnel drives growth at the other. Growth is orthogonal only because in Margolus some diagonal neighbor pairs never share a block, which would break the link.
+So water absorbed at one end of a tunnel drives growth at the other. All tuning lives in `TUNING` in `src/config.js`, with timings at 3x (~180 steps/s).
 
 Rendering: plant brightness tracks stored energy, tips show as bright cells.
 
+## Other rules
+
+- Sand, seeds and embers sink through water at half speed.
+- Smoke and steam rise and drift sideways; steam bubbles up through water.
+- Fire or ember touching water boils it to steam; steam condenses back to water (falls as rain), so water is conserved through the cycle.
+- The brush (GPU) only fills empty cells; the eraser clears everything. Strokes are queued per pointer event, so fast swipes and quick taps are drawn whole.
+
 ## Dev scenarios
 
-`dev/tunnel.html` (watered at one end, growing at the other) and `dev/pool.html` (seeds in a pool) run the sim headless-style on the GPU and show snapshots plus per-region counts. Open them through the server, e.g. http://localhost:8000/dev/tunnel.html.
+`dev/` pages run the real shaders on the GPU with scripted input and render a time-lapse strip plus stats:
+`tunnel` (water at one end, growth at the other), `pool` (seeds in a pool), `garden` (repeated watering, then drought), `elements` (fire/water/steam/embers/sinking).
+Open through the server, e.g. http://localhost:8000/dev/garden.html. `dev/harness.js` is the shared harness.
 
 ## Cell encoding
 

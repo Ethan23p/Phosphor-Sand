@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>garden scenario</title></head>
+<body style="background:#111;color:#ccc;margin:8px;font:12px monospace"><pre id="out">running...</pre>
+<script type="module">
+import { createHarness, blankGrid, fill, T, makeCell, W, stats } from './harness.js';
+// Phone-like play: draw seeds on a floor, then keep sweeping water strokes across
+// the area every half second for 20s, then stop. Expect: growth spread across
+// the plants (not just where water lands), bushier while fed, slow die-back after.
+const h = await createHarness();
+const g = blankGrid();
+fill(g, 0, W, 220, 226, makeCell(T.STONE, 0, 0));
+fill(g, 90, 100, 190, 220, makeCell(T.STONE, 0, 0));   // a ridge splitting the floor
+h.load(g);
+h.brush({ x0: 30, y0: 150, x1: 80, y1: 150, r: 2, type: T.SEED, density: 30 });
+h.brush({ x0: 140, y0: 150, x1: 220, y1: 150, r: 2, type: T.SEED, density: 30 });
+let sweep = 0;
+const water = s => {
+  if (s < 3600 && s % 90 === 0) {             // every 0.5s for 20s
+    const x = 20 + (sweep++ * 37) % 200;       // wander the stroke around
+    h.brush({ x0: x, y0: 40, x1: x + 30, y1: 50, r: 4, type: T.WATER, density: 160 });
+  }
+};
+const sides = a => { let l = 0, r = 0; a.forEach((c, i) => { if ((c & 255) === T.PLANT) (i % W < 95 ? l++ : r++); }); return `${stats(a)} | plants left/right ${l}/${r}`; };
+await h.snapshot(sides);
+for (const t of [900, 2700, 3600, 6300, 10800, 18000]) { h.run(t - h.step, water); await h.snapshot(sides); }
+h.finish('garden: repeated watering for 20s, then none');
+</script></body></html>
