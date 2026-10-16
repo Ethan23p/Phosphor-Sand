@@ -12,6 +12,14 @@ python -m http.server 8000
 
 Then open http://localhost:8000.
 
+### On your phone
+
+```
+powershell -ExecutionPolicy Bypass -File serve.ps1
+```
+
+This starts the server plus a Cloudflare quick tunnel and prints an `https://….trycloudflare.com` URL. The tunnel is needed because WebGPU only runs in a secure context (HTTPS or localhost), so a plain LAN IP won't work. Requires `winget install Cloudflare.cloudflared`. The URL changes every run; Ctrl+C stops everything.
+
 ## Layout
 
 | File | What lives there |
