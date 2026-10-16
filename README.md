@@ -29,7 +29,8 @@ This starts the server plus a Cloudflare quick tunnel and prints an `https://…
 | `src/shaders/sim.wgsl.js` | Simulation: `movement` → per-type `tick_*` rules → fire `convection` |
 | `src/shaders/render.wgsl.js` | Fullscreen-triangle render, color lookup, glow and CRT effects |
 | `src/main.js` | WebGPU setup, pipelines, ping-pong buffers, frame loop |
-| `src/input.js` | Brush, pointer handling, toolbar wiring |
+| `src/shaders/brush.wgsl.js` | GPU brush: stamps a capsule per pointer segment, fills only empty cells |
+| `src/input.js` | Pointer handling (queues stroke segments), toolbar wiring |
 | `src/debug.js` | On-page log, health dots, WGSL lint, compile-error reporting |
 
 ## Plant model
@@ -39,7 +40,7 @@ Plants are trees. Each plant cell stores which orthogonal neighbor it grew from 
 - **Drinking:** any cell below its cap occasionally absorbs one adjacent water.
 - **Transport:** every cell pulls its parent's energy above `STEM_RESERVE`. Stems stop at `STEM_CAP`, so energy passes through them; tips bank up to `TIP_CAP`.
 - **Growth:** tips try every ~`GROW_ODDS` steps, preferring to continue forward, then up. Growing into a cell (empty, seed, or water, which is drunk) costs noise-dependent energy. Blocked tips sometimes retire; full stems rarely bud.
-- **Death:** every cell burns energy slowly; starved cells vanish, occasionally leaving a seed.
+- **Death:** every cell burns energy slowly, now and then breathing out steam (transpiration: forests make their own rain); starved cells vanish, sometimes leaving a seed.
 
 So water absorbed at one end of a tunnel drives growth at the other. All tuning lives in `TUNING` in `src/config.js`, with timings at 3x (~180 steps/s).
 
@@ -66,4 +67,4 @@ One `u32` per cell: `type | data << 8 | variant << 16`. `data` is per-type (fire
 
 1. Add an ID to `T` and its colors to `CMAP` in `config.js` (and to `TOOLS` if it should be drawable).
 2. Add a `tick_<type>` in `sim.wgsl.js` and dispatch it in `main`'s interaction loop.
-3. If it needs starting data when drawn, add it in `brushData` in `input.js`.
+3. If it needs starting data when drawn, set it in `src/shaders/brush.wgsl.js`.
