@@ -53,7 +53,7 @@ Expectations for sim changes:
 
 **Cell encoding:** each cell is one `u32`: `type | data<<8 | variant<<16`.
 - Use the accessors `gt`, `gd`, `gv` and the constructor `mc` from `common.wgsl.js`; `makeCell` is the JS equivalent.
-- Plants use variant bits 2-7 as age (a generation count wrapping at 64; energy flows only to younger neighbors). Their `data` is energy.
+- Plants use variant bits 2-7 as age (a generation count wrapping at 64; energy flows only to younger neighbors). Their `data` is energy, and bits 24-31 (above `variant`) count stillness: cycles since energy last moved in or out; `mc` zeroes it.
 
 **Brush** (`brush.wgsl.js`):
 - It's a GPU capsule stamp that edits the current grid in place. It only fills empty cells; the eraser clears all.

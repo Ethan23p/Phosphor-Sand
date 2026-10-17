@@ -261,6 +261,10 @@ fn tick_seed(cin: Cells, i:u32, b: Block) -> Cells {
 // through a plant of any length and energy only needs it locally.
 fn plant_age(c:u32) -> u32 { return gv(c) >> 2u; }
 fn is_younger(other:u32, me:u32) -> bool { let d = (other - me) & 63u; return d >= 1u && d <= 31u; }
+// Stillness lives in bits 24-31: how long since energy last moved in or out of
+// the cell, counted every other step (one Margolus cycle) so it spans ~2.8s.
+// Rebuilding a cell with mc() zeroes it, so receiving energy resets it.
+fn plant_still(c:u32) -> u32 { return c >> 24u; }
 
 // PLANT ("ageism"): energy only flows from older cells to younger ones.
 //   Drink adjacent water, turning it into energy.
@@ -271,6 +275,8 @@ fn tick_plant(cin: Cells, i:u32, b: Block) -> Cells {
   var c = cin;
   var energy = gd(c[i]);
   let age = plant_age(c[i]);
+  var still = plant_still(c[i]);
+  var moved = false;
 
   // Drink: occasionally absorb one adjacent water, unless full
   if (energy < PLANT_CAP && (roll(b, i, 30u) % ABSORB_ODDS) == 0u) {
@@ -296,9 +302,11 @@ fn tick_plant(cin: Cells, i:u32, b: Block) -> Cells {
       let flow = min(min(FLOW_RATE, energy - STEM_RESERVE), PLANT_CAP - pe);
       energy = energy - flow;
       c[younger] = mc(PLANT, pe + flow, gv(c[younger]));
+      moved = true;
     }
-  } else if (energy >= PLANT_CAP && (roll(b, i, 32u) % GROW_ODDS) == 0u) {
-    // Sprout, only once full (energy that can still flow, flows instead):
+  } else if (energy >= PLANT_CAP && still * 2u >= SPROUT_DELAY && (roll(b, i, 32u) % GROW_ODDS) == 0u) {
+    // Sprout, only once full and still (stems have energy moving through them,
+    // so only the ends of stems bloom):
     // claim an empty neighbor for a noise-dependent energy cost.
     // The new cell is one generation younger and starts with BIRTH_E.
     let j = find_neighbor(c, i, EMPTY, roll(b, i, 47u));
@@ -313,6 +321,10 @@ fn tick_plant(cin: Cells, i:u32, b: Block) -> Cells {
     }
   }
   // (otherwise the energy accumulates)
+
+  // Energy moving out resets stillness; otherwise it counts up, once per cycle
+  if (moved) { still = 0u; }
+  else if ((p.frame & 1u) == 0u) { still = min(still + 1u, 255u); }
 
   // Metabolism: every cell slowly burns energy, now and then breathing out
   // steam into open air, so a forest returns part of its water as rain
@@ -330,7 +342,7 @@ fn tick_plant(cin: Cells, i:u32, b: Block) -> Cells {
     if ((roll(b, i, 35u) % SEED_DROP_ODDS) == 0u) { c[i] = mc(SEED, 0u, roll(b, i, 36u) & 3u); }
     else { c[i] = 0u; }
   } else {
-    c[i] = mc(PLANT, energy, gv(c[i]));
+    c[i] = mc(PLANT, energy, gv(c[i])) | (still << 24u);
   }
   return c;
 }

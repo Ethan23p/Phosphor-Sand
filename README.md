@@ -40,7 +40,7 @@ Plants run on "ageism": energy only flows from older cells to younger ones. Each
 - **Germination:** a seed touching water consumes it and becomes a plant cell with `GERM_E`.
 - **Drinking:** any plant cell touching water occasionally absorbs one, while below `PLANT_CAP` ("full").
 - **Transport:** a cell passes its energy above `STEM_RESERVE` (up to `FLOW_RATE` per step) to a younger neighbor that isn't full.
-- **Growth:** only when there's nowhere left for energy to flow and the cell is full does it try to sprout (every ~`GROW_ODDS` steps), claiming an empty neighbor for a noise-dependent cost. The new cell is one generation younger and starts with `BIRTH_E`. Otherwise energy accumulates.
+- **Growth:** a cell sprouts only once it's full and its energy has sat still (nothing transferred in or out) for `SPROUT_DELAY` steps. Stems always have energy moving through them, so only the ends of stems bloom. It then tries every ~`GROW_ODDS` steps, claiming an empty neighbor for a noise-dependent cost. The new cell is one generation younger and starts with `BIRTH_E`. Otherwise energy accumulates.
 - **Death:** every cell burns energy slowly, now and then breathing out steam (transpiration: forests make their own rain); starved cells vanish, sometimes leaving a seed.
 
 So water drunk at a plant's old end is carried to its youngest growth, wherever that is. All tuning lives in `TUNING` in `src/config.js`, with timings at 3x (~180 steps/s).
@@ -62,7 +62,7 @@ Open through the server, e.g. http://localhost:8000/dev/garden.html. `dev/harnes
 
 ## Cell encoding
 
-One `u32` per cell: `type | data << 8 | variant << 16`. `data` is per-type (fire/smoke/ember lifetime, plant energy). `variant` bits 0-1 pick a color; plants use bits 2-7 for age (a wrapping generation count).
+One `u32` per cell: `type | data << 8 | variant << 16`. `data` is per-type (fire/smoke/ember lifetime, plant energy). `variant` bits 0-1 pick a color; plants use bits 2-7 for age (a wrapping generation count), and the spare top byte (bits 24-31) counts how long their energy has sat still.
 
 ## Adding a particle type
 

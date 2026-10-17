@@ -22,7 +22,8 @@ export const TUNING = {
   STEM_RESERVE: 24,      // energy a cell keeps; the rest is passed to a younger neighbor
   FLOW_RATE: 150,        // max energy a cell passes to a younger neighbor per step
   BIRTH_E: 8,            // a new cell's starting energy (must stay ≤ GROW_COST_MIN)
-  GROW_ODDS: 64,         // a full cell with nowhere to pass energy tries to sprout every ~64 steps
+  SPROUT_DELAY: 180,     // a full cell's energy must sit still (no transfer in or out) ~1s before it may sprout; max ~510
+  GROW_ODDS: 4,          // once still, a cell tries to sprout every ~4 steps
   GROW_COST_MIN: 8,      // energy spent per new cell, at noise=1.0 (fertile)
   GROW_COST_MAX: 20,     // energy spent per new cell, at noise=0.0 (barren)
   GROW_KEEP: 4,          // a cell must keep this much after paying for growth
