@@ -35,15 +35,20 @@ This starts the server plus a Cloudflare quick tunnel and prints an `https://…
 
 ## Plant model
 
-Each plant cell has two scalars, fullness (its energy; `PLANT_CAP` is "full") and stillness (zero while energy moves into or out of the cell, otherwise counting up), and these rules:
+Each plant cell has two scalars and a few rules:
 
-- **Consumption:** a plant cell touching water removes it and gains `WATER_GAIN` energy (cells can go overfull, up to what 14 bits hold).
-- **Transfer:** a cell gives to its emptiest less-full neighbor until that neighbor is full, even if that empties the giver. All cells in a block decide from the block as it was at the start of the step, so energy can't be handed straight back.
-- **Bloom:** a full cell that has been still for `SPROUT_DELAY` steps grows into an empty neighbor and gives it half its energy.
-- **Metabolism:** every cell burns one energy per ~`METAB_ODDS` steps; 1 in `TRANSPIRE_ODDS` of it is breathed out as steam (forests make their own rain).
-- **Starving:** a cell left empty and still for ~1.4s dies; 1 in `SEED_DROP_ODDS` leaves a seed.
+| Mechanic | What it does | Parameters |
+|---|---|---|
+| Fullness | A cell's energy. Cells can go overfull, up to what 14 bits hold. | `PLANT_CAP` ("full"), `ENERGY_RES` (fine units per energy) |
+| Stillness | Zero while energy moves into or out of the cell, otherwise counting up (every 4 steps, maxing out at ~1.4s). | none |
+| Consumption | A plant cell touching water removes it and gains energy. | `WATER_GAIN` |
+| Transfer | A cell gives to its emptiest less-full neighbor until that neighbor is full, even if that empties the giver. All cells in a block decide from the block as it was at the start of the step, so energy can't be handed straight back. | none |
+| Bloom | A full cell that has been still long enough grows into an empty neighbor and gives it half its energy. | `SPROUT_DELAY` |
+| Metabolism | Every cell slowly burns energy; some of it is breathed out as steam (forests make their own rain). | `METAB_ODDS`, `TRANSPIRE_ODDS` |
+| Starving | A cell left empty and still until stillness maxes out dies, sometimes leaving a seed. | `SEED_DROP_ODDS` |
+| Germination | A seed touching water becomes a plant cell. | `GERM_E`, `GERM_ODDS` |
 
-Seeds touching water germinate into a plant cell with `GERM_E`. Energy runs from the roots to wherever it can sit still, so plants grow at their ends, and a plant whose roots run dry drains toward its growing ends: it walks. A source that drinks faster than its stems can carry blooms at the source. All tuning lives in `TUNING` in `src/config.js`, with timings at 3x (~180 steps/s).
+Energy runs from the roots to wherever it can sit still, so plants grow at their ends, and a plant whose roots run dry drains toward its growing ends: it walks. A source that drinks faster than its stems can carry blooms at the source. All tuning lives in `TUNING` in `src/config.js`, with timings at 3x (~180 steps/s).
 
 Rendering: plant brightness tracks fullness: full cells are bright, starved ones dim.
 
