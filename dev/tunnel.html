@@ -3,27 +3,29 @@
 <body style="background:#111;color:#ccc;margin:8px;font:12px monospace"><pre id="out">running...</pre>
 <script type="module">
 import { createHarness, blankGrid, fill, T, makeCell, W, stats } from './harness.js';
-// Water in the left chamber, a stem through a stone tunnel, one tip in the right chamber.
-// Expect: the pool drains while growth happens only on the far side.
+// Energy flows from older cells to younger ones. The plant's oldest end dips into the
+// pool, a stem runs through a stone tunnel, and its youngest cell sits in the far chamber.
+// Age is a generation count that grows by 1 along the stem (wrapping at 64).
+// Expect: cells in the pool drink, the energy travels along the stem, and the plant
+// grows out of its young end in the far chamber.
 const h = await createHarness();
 const g = blankGrid().fill(makeCell(T.STONE, 0, 0));
 fill(g, 10, 70, 60, 140, 0);                          // left chamber
 fill(g, 10, 70, 100, 140, makeCell(T.WATER, 0, 0));   // pool
 fill(g, 70, 190, 76, 81, 0);                          // tunnel
 fill(g, 190, 250, 20, 140, 0);                        // right chamber
-const DOWN = 4 << 3, LEFT = 1 << 3;                   // parent-link codes
-g[139 * W + 40] = makeCell(T.PLANT, 30, 0);                                  // root at the pool floor
-for (let y = 78; y < 139; y++) g[y * W + 40] = makeCell(T.PLANT, 30, DOWN);  // up out of the pool
-for (let x = 41; x < 196; x++) g[78 * W + x] = makeCell(T.PLANT, 30, LEFT);  // through the tunnel
-g[78 * W + 196] = makeCell(T.PLANT, 30, 4 | LEFT);                           // single tip
+let gen = 0;
+const put = (x, y) => { g[y * W + x] = makeCell(T.PLANT, 30, (gen++ & 63) << 2); };
+for (let y = 139; y >= 79; y--) put(40, y);           // oldest end, down in the pool
+for (let x = 40; x <= 196; x++) put(x, 78);           // stem through the tunnel; youngest cell in the far chamber
 h.load(g);
 const regions = a => {
-  let water = 0, near = 0, far = 0, tips = 0;
+  let water = 0, near = 0, far = 0;
   a.forEach((c, i) => { const t = c & 255; if (t === T.WATER) water++;
-    if (t === T.PLANT) { (i % W < 190 ? near++ : far++); if ((c >> 16) & 4) tips++; } });
-  return `water ${water} | plant near/tunnel ${near} | plant far chamber ${far} | tips ${tips}`;
+    if (t === T.PLANT) { (i % W < 190 ? near++ : far++); } });
+  return `water ${water} | plant near/tunnel ${near} | plant far chamber ${far}`;
 };
 await h.snapshot(regions);
 for (const t of [1800, 4500, 9000, 18000]) { h.run(t - h.step); await h.snapshot(regions); }
-h.finish('tunnel: water at one end, growth at the other');
+h.finish('tunnel: water drunk at the old end, growth at the young end');
 </script></body></html>

@@ -45,7 +45,7 @@ Expectations for sim changes:
   - Give each probability check its own unique `salt`, so checks don't share random bits.
 - **Pipeline order:** `movement` (swaps only) → per-type `tick_*` (cells visited from a random start slot) → fire `convection`.
 - **Interaction range:** cells can only interact with cells in the same block. A neighbor in a given direction is only reachable on some phases (`dir_slot` returns `4u` otherwise, meaning "wait").
-  - Diagonal pairs sometimes never share a block, so persistent links (plant parent pointers) are orthogonal only.
+  - Diagonal pairs sometimes never share a block, so neighbor rules (like plant energy transfer) should rely on orthogonal neighbors.
 - **Conservation is a design goal.**
   - Movement only swaps cells.
   - Reactions should conserve matter, e.g. water ↔ steam. Plants turn water into energy, and transpiration returns part of it as steam.
@@ -53,7 +53,7 @@ Expectations for sim changes:
 
 **Cell encoding:** each cell is one `u32`: `type | data<<8 | variant<<16`.
 - Use the accessors `gt`, `gd`, `gv` and the constructor `mc` from `common.wgsl.js`; `makeCell` is the JS equivalent.
-- Plants use variant bit 2 as the tip flag and bits 3-5 as the parent direction. Their `data` is energy.
+- Plants use variant bits 2-7 as age (a generation count wrapping at 64; energy flows only to younger neighbors). Their `data` is energy.
 
 **Brush** (`brush.wgsl.js`):
 - It's a GPU capsule stamp that edits the current grid in place. It only fills empty cells; the eraser clears all.

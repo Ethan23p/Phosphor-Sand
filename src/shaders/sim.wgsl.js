@@ -242,69 +242,38 @@ fn tick_steam(cin: Cells, i:u32, b: Block) -> Cells {
   return c;
 }
 
-// SEED: germinate by consuming adjacent water; the seed becomes the plant's first tip
+// SEED: germinate by consuming adjacent water, turning into a plant cell with much energy
 fn tick_seed(cin: Cells, i:u32, b: Block) -> Cells {
   var c = cin;
   if ((roll(b, i, 20u) % GERM_ODDS) == 0u) {
     let j = find_neighbor(c, i, WATER, roll(b, i, 21u));
     if (j < 4u) {
-      c[i] = mc(PLANT, GERM_E, noise_variant(cell_x(b.bx, i), cell_y(b.by, i)) | PLANT_TIP);
+      c[i] = mc(PLANT, GERM_E, noise_variant(cell_x(b.bx, i), cell_y(b.by, i)));
       c[j] = 0u;
     }
   }
   return c;
 }
 
-// ─── PLANT TREE LINKS ───
-// Directions: 1 left, 2 right, 3 up, 4 down. Each plant cell stores the
-// direction of the neighbor it grew from (its parent) in variant bits 3-5;
-// 0 means none (a seedling/root). Orthogonal only: in Margolus, some diagonal
-// pairs never share a block.
-const DIR_UP:u32 = 3u;
-fn parent_code(v:u32) -> u32 { return (v >> 3u) & 7u; }
-fn opposite(d:u32) -> u32 { return ((d - 1u) ^ 1u) + 1u; }
+// Plant age lives in variant bits 2-7; bits 0-1 are color. Age is a generation
+// count: a seed starts at 0 and each sprout is one more than the cell that grew it.
+// It wraps at 64, and "younger" means 1-31 generations ahead, so a gradient runs
+// through a plant of any length and energy only needs it locally.
+fn plant_age(c:u32) -> u32 { return gv(c) >> 2u; }
+fn is_younger(other:u32, me:u32) -> bool { let d = (other - me) & 63u; return d >= 1u && d <= 31u; }
 
-// Block slot of i's neighbor in direction d, or 4u if it isn't in this block this phase
-fn dir_slot(i:u32, d:u32) -> u32 {
-  let ix = i & 1u; let iy = i >> 1u;
-  if (d == 1u && ix == 1u) { return i ^ 1u; }
-  if (d == 2u && ix == 0u) { return i ^ 1u; }
-  if (d == 3u && iy == 1u) { return i ^ 2u; }
-  if (d == 4u && iy == 0u) { return i ^ 2u; }
-  return 4u;
-}
-
-// Weighted growth direction: forward (away from parent) strongly preferred,
-// then up; sideways 2, down 1, back 0. Sampled independently of the Margolus
-// phase, so a direction that isn't in this block just means "wait".
-fn pick_dir(back:u32, r:u32) -> u32 {
-  var fwd = DIR_UP;
-  if (back != 0u) { fwd = opposite(back); }
-  var w = array<u32, 5>(0u, 2u, 2u, 2u + UP_BIAS, 1u);
-  w[fwd] = w[fwd] + FORWARD_BIAS;
-  w[back] = 0u;
-  var x = r % (w[1] + w[2] + w[3] + w[4]);
-  for (var d = 1u; d <= 4u; d = d + 1u) {
-    if (x < w[d]) { return d; }
-    x = x - w[d];
-  }
-  return 0u;
-}
-
-// PLANT: a tree of cells. Energy enters wherever the plant touches water and
-// flows root → tip: every cell pulls its parent's surplus above STEM_RESERVE.
-// Stems stop pulling at STEM_CAP so energy passes through them; tips bank up
-// to TIP_CAP and spend it growing. Non-local behavior from local rules.
+// PLANT ("ageism"): energy only flows from older cells to younger ones.
+//   Drink adjacent water, turning it into energy.
+//   If a neighbor is younger and not full, transfer energy to it;
+//   else, once full, attempt to sprout new growth;
+//   else the energy accumulates.
 fn tick_plant(cin: Cells, i:u32, b: Block) -> Cells {
   var c = cin;
   var energy = gd(c[i]);
-  var v = gv(c[i]);
-  let tip = (v & PLANT_TIP) != 0u;
-  var cap = STEM_CAP;
-  if (tip) { cap = TIP_CAP; }
+  let age = plant_age(c[i]);
 
-  // Drink: occasionally absorb one adjacent water, unless already full
-  if (energy < cap && (roll(b, i, 30u) % ABSORB_ODDS) == 0u) {
+  // Drink: occasionally absorb one adjacent water, unless full
+  if (energy < PLANT_CAP && (roll(b, i, 30u) % ABSORB_ODDS) == 0u) {
     let j = find_neighbor(c, i, WATER, roll(b, i, 31u));
     if (j < 4u) {
       energy = min(energy + WATER_GAIN, 255u);
@@ -312,45 +281,38 @@ fn tick_plant(cin: Cells, i:u32, b: Block) -> Cells {
     }
   }
 
-  // Transport: pull parent's surplus toward the tips
-  let pj = dir_slot(i, parent_code(v));
-  if (pj < 4u && gt(c[pj]) == PLANT && energy < cap) {
-    let pe = gd(c[pj]);
-    if (pe > STEM_RESERVE) {
-      let flow = min(min(FLOW_RATE, pe - STEM_RESERVE), cap - energy);
-      energy = energy + flow;
-      c[pj] = mc(PLANT, pe - flow, gv(c[pj]));
-    }
+  // A younger neighbor that isn't full
+  var younger = 4u;
+  let r = roll(b, i, 33u);
+  for (var k = 0u; k < 4u; k = k + 1u) {
+    let j = (r + k) & 3u;
+    if (j != i && gt(c[j]) == PLANT && is_younger(plant_age(c[j]), age) && gd(c[j]) < PLANT_CAP) { younger = j; break; }
   }
 
-  // Growth: tips try every ~GROW_ODDS steps; full stems occasionally bud.
-  // Claiming a cell costs noise-dependent energy; the new cell is a tip.
-  let gr = roll(b, i, 32u);
-  var attempt = false;
-  if (tip) { attempt = (gr % GROW_ODDS) == 0u; }
-  else { attempt = energy >= STEM_CAP && (gr % BUD_ODDS) == 0u; }
-  if (attempt) {
-    let d = pick_dir(parent_code(v), roll(b, i, 33u));
-    let j = dir_slot(i, d);
+  if (younger < 4u) {
+    // Transfer energy to it
+    let pe = gd(c[younger]);
+    if (energy > STEM_RESERVE) {
+      let flow = min(min(FLOW_RATE, energy - STEM_RESERVE), PLANT_CAP - pe);
+      energy = energy - flow;
+      c[younger] = mc(PLANT, pe + flow, gv(c[younger]));
+    }
+  } else if (energy >= PLANT_CAP && (roll(b, i, 32u) % GROW_ODDS) == 0u) {
+    // Sprout, only once full (energy that can still flow, flows instead):
+    // claim an empty neighbor for a noise-dependent energy cost.
+    // The new cell is one generation younger and starts with BIRTH_E.
+    let j = find_neighbor(c, i, EMPTY, roll(b, i, 47u));
     if (j < 4u) {
-      let jt = gt(c[j]);
-      // Tips can also grow into water, drinking it as they go (no drowning)
-      if (jt == EMPTY || jt == SEED || (tip && jt == WATER)) {
-        let jx = cell_x(b.bx, j);
-        let jy = cell_y(b.by, j);
-        let cost = GROW_COST_MIN + u32(f32(GROW_COST_MAX - GROW_COST_MIN) * (1.0 - growth_noise(jx, jy)));
-        if (jt == WATER) { energy = min(energy + WATER_GAIN, 255u); }
-        if (energy >= cost + GROW_KEEP) {
-          let rest = energy - cost;
-          energy = rest / 2u;
-          c[j] = mc(PLANT, rest - energy, noise_variant(jx, jy) | PLANT_TIP | (opposite(d) << 3u));
-          if (tip && ((gr >> 8u) % BRANCH_ODDS) != 0u) { v = v & ~PLANT_TIP; }
-        }
-      } else if (tip && ((gr >> 16u) % RETIRE_ODDS) == 0u) {
-        v = v & ~PLANT_TIP; // blocked: give up, let energy go elsewhere
+      let jx = cell_x(b.bx, j);
+      let jy = cell_y(b.by, j);
+      let cost = GROW_COST_MIN + u32(f32(GROW_COST_MAX - GROW_COST_MIN) * (1.0 - growth_noise(jx, jy)));
+      if (energy >= cost + GROW_KEEP) {
+        energy = energy - cost;
+        c[j] = mc(PLANT, BIRTH_E, noise_variant(jx, jy) | (((age + 1u) & 63u) << 2u));
       }
     }
   }
+  // (otherwise the energy accumulates)
 
   // Metabolism: every cell slowly burns energy, now and then breathing out
   // steam into open air, so a forest returns part of its water as rain
@@ -368,7 +330,7 @@ fn tick_plant(cin: Cells, i:u32, b: Block) -> Cells {
     if ((roll(b, i, 35u) % SEED_DROP_ODDS) == 0u) { c[i] = mc(SEED, 0u, roll(b, i, 36u) & 3u); }
     else { c[i] = 0u; }
   } else {
-    c[i] = mc(PLANT, energy, v);
+    c[i] = mc(PLANT, energy, gv(c[i]));
   }
   return c;
 }

@@ -101,22 +101,21 @@ export function colorOf(cell) {
   let c = cols[(v & 3) % cols.length];
   if (t === T.FIRE) c = c.map(x => Math.min(1, x * (1 + d / 200)));
   if (t === T.PLANT) {
-    const k = 0.6 + 0.8 * Math.min(d / TUNING.TIP_CAP, 1);
+    const k = 0.6 + 0.8 * Math.min(d / TUNING.PLANT_CAP, 1);
     c = c.map(x => Math.min(1, x * k));
-    if (v & 4) c = c.map(x => x + (1 - x) * 0.6);
   }
   return c;
 }
 
-// Default stats: count per type, plus plant energy and tip count
+// Default stats: count per type, plus plant energy and age
 export function stats(a) {
-  const n = {}; let pe = 0, tips = 0;
+  const n = {}; let pe = 0, age = 0;
   for (const cell of a) {
     const t = cell & 255; n[t] = (n[t] || 0) + 1;
-    if (t === T.PLANT) { pe += (cell >> 8) & 255; if ((cell >> 16) & 4) tips++; }
+    if (t === T.PLANT) { pe += (cell >> 8) & 255; age += (cell >> 18) & 63; }
   }
   const parts = Object.entries(n).filter(([t]) => +t !== T.EMPTY).map(([t, k]) => `${NAMES[t].toLowerCase()} ${k}`);
-  if (n[T.PLANT]) parts.push(`avgE ${(pe / n[T.PLANT]).toFixed(0)} tips ${tips}`);
+  if (n[T.PLANT]) parts.push(`avgE ${(pe / n[T.PLANT]).toFixed(0)} age ${(age / n[T.PLANT]).toFixed(0)}`);
   return parts.join(' | ');
 }
 

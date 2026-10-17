@@ -35,16 +35,17 @@ This starts the server plus a Cloudflare quick tunnel and prints an `https://…
 
 ## Plant model
 
-Plants are trees. Each plant cell stores which orthogonal neighbor it grew from (variant bits 3-5), and tips carry a flag (variant bit 2).
+Plants run on "ageism": energy only flows from older cells to younger ones. Each plant cell stores its age in variant bits 2-7, a generation count: a germinated seed is generation 0 and each sprout is one more than the cell that grew it. The count wraps at 64, and a neighbor counts as younger when it's 1-31 generations ahead, so the gradient runs through a plant of any length.
 
-- **Drinking:** any cell below its cap occasionally absorbs one adjacent water.
-- **Transport:** every cell pulls its parent's energy above `STEM_RESERVE`. Stems stop at `STEM_CAP`, so energy passes through them; tips bank up to `TIP_CAP`.
-- **Growth:** tips try every ~`GROW_ODDS` steps, preferring to continue forward, then up. Growing into a cell (empty, seed, or water, which is drunk) costs noise-dependent energy. Blocked tips sometimes retire; full stems rarely bud.
+- **Germination:** a seed touching water consumes it and becomes a plant cell with `GERM_E`.
+- **Drinking:** any plant cell touching water occasionally absorbs one, while below `PLANT_CAP` ("full").
+- **Transport:** a cell passes its energy above `STEM_RESERVE` (up to `FLOW_RATE` per step) to a younger neighbor that isn't full.
+- **Growth:** only when there's nowhere left for energy to flow and the cell is full does it try to sprout (every ~`GROW_ODDS` steps), claiming an empty neighbor for a noise-dependent cost. The new cell is one generation younger and starts with `BIRTH_E`. Otherwise energy accumulates.
 - **Death:** every cell burns energy slowly, now and then breathing out steam (transpiration: forests make their own rain); starved cells vanish, sometimes leaving a seed.
 
-So water absorbed at one end of a tunnel drives growth at the other. All tuning lives in `TUNING` in `src/config.js`, with timings at 3x (~180 steps/s).
+So water drunk at a plant's old end is carried to its youngest growth, wherever that is. All tuning lives in `TUNING` in `src/config.js`, with timings at 3x (~180 steps/s).
 
-Rendering: plant brightness tracks stored energy, tips show as bright cells.
+Rendering: plant brightness tracks stored energy, young (drinking) cells show as bright cells.
 
 ## Other rules
 
@@ -61,7 +62,7 @@ Open through the server, e.g. http://localhost:8000/dev/garden.html. `dev/harnes
 
 ## Cell encoding
 
-One `u32` per cell: `type | data << 8 | variant << 16`. `data` is per-type (fire/smoke/ember lifetime, plant energy). `variant` bits 0-1 pick a color; plants also use bit 2 (tip) and bits 3-5 (parent link).
+One `u32` per cell: `type | data << 8 | variant << 16`. `data` is per-type (fire/smoke/ember lifetime, plant energy). `variant` bits 0-1 pick a color; plants use bits 2-7 for age (a wrapping generation count).
 
 ## Adding a particle type
 

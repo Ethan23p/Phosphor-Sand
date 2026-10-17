@@ -14,24 +14,19 @@ export const T = {
 // "_ODDS: n" means a 1-in-n chance per step. Times assume 3x speed ≈ 180 steps/s.
 export const TUNING = {
   // ── Plant life cycle ──
-  GERM_E: 200,           // a seed's packed energy: enough for a seedling to grow ~3 cells unwatered
+  GERM_E: 200,           // a germinated seed starts with much energy
   GERM_ODDS: 32,         // seed touching water sprouts after ~0.2s
   WATER_GAIN: 40,        // energy per water drunk
-  ABSORB_ODDS: 24,       // a cell touching water drinks ≤ ~7 water/s, and only while below its cap
-  STEM_RESERVE: 24,      // energy a stem keeps for itself; the rest flows on toward the tips
-  STEM_CAP: 64,          // stems stop pulling/drinking here, so energy passes through instead of pooling
-  TIP_CAP: 140,          // tips bank enough for one expensive growth step
-  FLOW_RATE: 24,         // max energy a cell pulls from its parent per step
-  GROW_ODDS: 16,         // tips try to grow every ~16 steps (≤ ~5 cells/s per tip when well fed)
-  GROW_COST_MIN: 30,     // energy spent per new cell, at noise=1.0 (fertile)
-  GROW_COST_MAX: 80,     // energy spent per new cell, at noise=0.0 (barren)
-  GROW_KEEP: 8,          // a tip must keep this much after paying for growth
-  FORWARD_BIAS: 3,       // tips mildly prefer to keep growing the way they were going...
-  UP_BIAS: 3,            // ...and upward; sideways weighs 2, down 1, back 0
-  BRANCH_ODDS: 6,        // 1 in N growths leaves the old tip growing too (bushy, not wiry)
-  RETIRE_ODDS: 12,       // a tip that tries a blocked cell sometimes gives up and becomes stem
-  BUD_ODDS: 2048,        // a full stem (energy ≥ STEM_CAP) sometimes sprouts a new tip (~1 per 11s each)
-  METAB_ODDS: 512,       // every cell burns 1 energy per ~2.8s; a stem at reserve starves in ~70s
+  ABSORB_ODDS: 8,        // a plant cell touching water drinks ≤ ~22 water/s, while below PLANT_CAP
+  PLANT_CAP: 200,        // "full": a cell stops drinking and stops accepting energy here
+  STEM_RESERVE: 24,      // energy a cell keeps; the rest is passed to a younger neighbor
+  FLOW_RATE: 150,        // max energy a cell passes to a younger neighbor per step
+  BIRTH_E: 8,            // a new cell's starting energy (must stay ≤ GROW_COST_MIN)
+  GROW_ODDS: 64,         // a full cell with nowhere to pass energy tries to sprout every ~64 steps
+  GROW_COST_MIN: 8,      // energy spent per new cell, at noise=1.0 (fertile)
+  GROW_COST_MAX: 20,     // energy spent per new cell, at noise=0.0 (barren)
+  GROW_KEEP: 4,          // a cell must keep this much after paying for growth
+  METAB_ODDS: 512,       // every cell burns 1 energy per ~2.8s; a cell at reserve starves in ~70s
   SEED_DROP_ODDS: 16,    // a starved cell leaves a seed instead of empty space
   TRANSPIRE_ODDS: 64,    // 1 in N energy burned is breathed out as steam: ~60% of a water's worth comes back as rain
 
