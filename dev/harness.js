@@ -6,7 +6,6 @@ import { brushWGSL } from '../src/shaders/brush.wgsl.js';
 
 export { T, makeCell };
 export const W = GRID_W, H = GRID_H, N = W * H;
-const PLAIN = new URLSearchParams(location.search).has('plain');
 const NAMES = Object.fromEntries(Object.entries(T).map(([k, v]) => [v, k]));
 
 export async function createHarness() {
@@ -106,7 +105,6 @@ export function makePlant(e, color = 0) {
 export function colorOf(cell) {
   const t = cell & 255, d = (cell >> 8) & 255; let v = (cell >> 16) & 255;
   const cols = CMAP[t] || [[1, 0, 1]];
-  if (t === T.PLANT && PLAIN) v = 0;  // ?plain: energy-only plant color, like the Tint toggle
   let c = cols[(v & 3) % cols.length];
   if (t === T.FIRE) c = c.map(x => Math.min(1, x * (1 + d / 200)));
   if (t === T.PLANT) {

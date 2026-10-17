@@ -20,6 +20,9 @@ export const TUNING = {
   PLANT_CAP: 100,        // "full": a cell this full (and still) can bloom
   ENERGY_RES: 64,        // plant energy is stored in fine units, this many per unit
   SPROUT_DELAY: 4,       // "still": steps without energy moving in or out; max ~250
+  METAB_ODDS: 512,       // every cell burns 1 energy per ~2.8s; a full cell lasts ~4.7 min alone
+  SEED_DROP_ODDS: 16,    // a starved cell leaves a seed instead of empty space
+  TRANSPIRE_ODDS: 64,    // 1 in N energy burned is breathed out as steam
 
   // ── Fire, water, steam ──
   IGNITE_ODDS: 8,        // fire's chance per step to ignite plants/seeds in its block

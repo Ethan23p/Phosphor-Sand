@@ -153,7 +153,7 @@ async function main() {
   const state = {
     cur: 0, step: 0, paused: false,
     tool: TOOLS[0], bRad: 3, spf: 3,
-    pDown: false, pGrid: null, segs: [], pEvts: 0, plainPlants: false,
+    pDown: false, pGrid: null, segs: [], pEvts: 0,
   };
   attachPointer(canvas, state);
   attachToolbar(state, { onClear: () => {
@@ -165,7 +165,6 @@ async function main() {
   function writeParams() {
     params[2] = state.step & 1;
     params[3] = state.step;
-    params[4] = state.plainPlants ? 1 : 0;
     device.queue.writeBuffer(paramBuf, 0, params);
   }
 

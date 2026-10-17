@@ -35,15 +35,15 @@ This starts the server plus a Cloudflare quick tunnel and prints an `https://…
 
 ## Plant model
 
-Each plant cell has two scalars and three rules, nothing else:
+Each plant cell has two scalars, fullness (its energy; `PLANT_CAP` is "full") and stillness (zero while energy moves into or out of the cell, otherwise counting up), and these rules:
 
-- **Fullness:** the cell's energy. `PLANT_CAP` is "full".
-- **Stillness:** zero while energy moves into or out of the cell, otherwise counting up.
 - **Consumption:** a plant cell touching water removes it and gains `WATER_GAIN` energy (cells can go overfull, up to what 14 bits hold).
 - **Transfer:** a cell gives to its emptiest less-full neighbor until that neighbor is full, even if that empties the giver. All cells in a block decide from the block as it was at the start of the step, so energy can't be handed straight back.
 - **Bloom:** a full cell that has been still for `SPROUT_DELAY` steps grows into an empty neighbor and gives it half its energy.
+- **Metabolism:** every cell burns one energy per ~`METAB_ODDS` steps; 1 in `TRANSPIRE_ODDS` of it is breathed out as steam (forests make their own rain).
+- **Starving:** a cell left empty and still for ~1.4s dies; 1 in `SEED_DROP_ODDS` leaves a seed.
 
-Seeds touching water germinate into a plant cell with `GERM_E`. Energy exhaustion (burning energy, transpiring steam, starving) is paused for now, so plants don't die except by fire. Energy runs from the roots to wherever it can sit still, so plants grow at their ends; a source that drinks faster than its stems can carry blooms at the source. The toolbar's Tint button shows plant color as energy only. All tuning lives in `TUNING` in `src/config.js`, with timings at 3x (~180 steps/s).
+Seeds touching water germinate into a plant cell with `GERM_E`. Energy runs from the roots to wherever it can sit still, so plants grow at their ends, and a plant whose roots run dry drains toward its growing ends: it walks. A source that drinks faster than its stems can carry blooms at the source. All tuning lives in `TUNING` in `src/config.js`, with timings at 3x (~180 steps/s).
 
 Rendering: plant brightness tracks fullness: full cells are bright, starved ones dim.
 

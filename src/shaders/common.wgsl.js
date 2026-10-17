@@ -5,7 +5,7 @@ const u32Consts = obj =>
 
 // Prepended to every shader: params layout, type IDs, tuning, cell accessors, hash.
 export const commonWGSL = `
-struct Params { w:u32, h:u32, phase:u32, frame:u32, flags:u32, _p1:u32, _p2:u32, _p3:u32 }
+struct Params { w:u32, h:u32, phase:u32, frame:u32, _p0:u32, _p1:u32, _p2:u32, _p3:u32 }
 
 ${u32Consts(T)}
 ${u32Consts(TUNING)}

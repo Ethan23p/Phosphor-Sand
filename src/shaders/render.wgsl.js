@@ -52,8 +52,6 @@ fn gc(cell: u32) -> vec3f {
 
   let cell = grid[gy * p.w + gx];
   var col = gc(cell);
-  // Tint off (flags bit 0): plants drop their noise color; only brightness (energy) varies
-  if (gt(cell) == PLANT && (p.flags & 1u) == 1u) { col = gc(PLANT); }
 
   // Fire glow
   if (gt(cell) == FIRE) {

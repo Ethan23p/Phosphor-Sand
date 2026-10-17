@@ -264,6 +264,8 @@ fn tick_seed(cin: Cells, i:u32, b: Block) -> Cells {
 //   Every cell decides from the block as it was at the start of the step (c0), so
 //   energy a cell just received can't be handed straight back within the same step.
 //   Bloom: a full, still cell grows into an empty neighbor, which gets half its energy.
+//   Starve: a cell left empty and still for ~1.4s dies, sometimes leaving a seed.
+//   Metabolism: every cell slowly burns energy, now and then breathing out steam.
 fn plant_still(c:u32) -> u32 { return (c >> 24u) & 63u; }
 
 fn tick_plant(cin: Cells, c0: Cells, i:u32, b: Block) -> Cells {
@@ -315,6 +317,26 @@ fn tick_plant(cin: Cells, c0: Cells, i:u32, b: Block) -> Cells {
 
   if (busy) { still = 0u; }
   else if ((p.frame & 3u) == 0u) { still = min(still + 1u, 63u); }
+
+  // Starve: a cell that has sat empty and still for as long as stillness counts
+  // (~1.4s) dies, sometimes leaving a seed
+  if (energy == 0u && still == 63u) {
+    if ((roll(b, i, 35u) % SEED_DROP_ODDS) == 0u) { c[i] = mc(SEED, 0u, roll(b, i, 36u) & 3u); }
+    else { c[i] = 0u; }
+    return c;
+  }
+
+  // Metabolism: burn one fine unit every ~METAB_ODDS / ENERGY_RES steps (one
+  // whole unit per ~METAB_ODDS), sometimes breathing out steam into open air
+  let mr = roll(b, i, 34u);
+  if ((mr % max(METAB_ODDS / ENERGY_RES, 1u)) == 0u && energy > 0u) {
+    energy = energy - 1u;
+    if (((mr >> 8u) % (TRANSPIRE_ODDS * ENERGY_RES)) == 0u) {
+      let j = find_neighbor(c, i, EMPTY, roll(b, i, 37u));
+      if (j < 4u) { c[j] = steam_cell(roll(b, i, 38u)); }
+    }
+  }
+
   c[i] = mp(energy, color) | (still << 24u);
   return c;
 }
