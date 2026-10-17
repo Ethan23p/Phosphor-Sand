@@ -2,22 +2,20 @@
 <html><head><meta charset="utf-8"><title>tunnel scenario</title></head>
 <body style="background:#111;color:#ccc;margin:8px;font:12px monospace"><pre id="out">running...</pre>
 <script type="module">
-import { createHarness, blankGrid, fill, T, makeCell, W, stats } from './harness.js';
-// Energy flows from older cells to younger ones. The plant's oldest end dips into the
-// pool, a stem runs through a stone tunnel, and its youngest cell sits in the far chamber.
-// Age is a generation count that grows by 1 along the stem (wrapping at 64).
+import { createHarness, blankGrid, fill, T, makeCell, makePlant, plantE, W, stats } from './harness.js';
+// Energy flows from fuller cells to emptier ones. One end of the plant dips into the
+// pool, a stem runs through a stone tunnel, and its other end sits in the far chamber.
 // Expect: cells in the pool drink, the energy travels along the stem, and the plant
-// grows out of its young end in the far chamber.
+// grows out of its still end in the far chamber.
 const h = await createHarness();
 const g = blankGrid().fill(makeCell(T.STONE, 0, 0));
 fill(g, 10, 70, 60, 140, 0);                          // left chamber
 fill(g, 10, 70, 100, 140, makeCell(T.WATER, 0, 0));   // pool
 fill(g, 70, 190, 76, 81, 0);                          // tunnel
 fill(g, 190, 250, 20, 140, 0);                        // right chamber
-let gen = 0;
-const put = (x, y) => { g[y * W + x] = makeCell(T.PLANT, 30, (gen++ & 63) << 2); };
-for (let y = 139; y >= 79; y--) put(40, y);           // oldest end, down in the pool
-for (let x = 40; x <= 196; x++) put(x, 78);           // stem through the tunnel; youngest cell in the far chamber
+const put = (x, y) => { g[y * W + x] = makePlant(30); };
+for (let y = 139; y >= 79; y--) put(40, y);           // one end, down in the pool
+for (let x = 40; x <= 196; x++) put(x, 78);           // stem through the tunnel; the other end in the far chamber
 h.load(g);
 const regions = a => {
   let water = 0, near = 0, far = 0;
@@ -27,5 +25,5 @@ const regions = a => {
 };
 await h.snapshot(regions);
 for (const t of [1800, 4500, 9000, 18000]) { h.run(t - h.step); await h.snapshot(regions); }
-h.finish('tunnel: water drunk at the old end, growth at the young end');
+h.finish('tunnel: water drunk at one end, growth at the other');
 </script></body></html>

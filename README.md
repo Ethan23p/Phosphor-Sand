@@ -35,17 +35,17 @@ This starts the server plus a Cloudflare quick tunnel and prints an `https://…
 
 ## Plant model
 
-Plants run on "ageism": energy only flows from older cells to younger ones. Each plant cell stores its age in variant bits 2-7, a generation count: a germinated seed is generation 0 and each sprout is one more than the cell that grew it. The count wraps at 64, and a neighbor counts as younger when it's 1-31 generations ahead, so the gradient runs through a plant of any length.
+Each plant cell has two scalars and three rules, nothing else:
 
-- **Germination:** a seed touching water consumes it and becomes a plant cell with `GERM_E`.
-- **Drinking:** any plant cell touching water occasionally absorbs one, while below `PLANT_CAP` ("full").
-- **Transport:** a cell passes its energy above `STEM_RESERVE` (up to `FLOW_RATE` per step) to a younger neighbor that isn't full.
-- **Growth:** a cell sprouts only once it's full and its energy has sat still (nothing transferred in or out) for `SPROUT_DELAY` steps. Stems always have energy moving through them, so only the ends of stems bloom. It then tries every ~`GROW_ODDS` steps, claiming an empty neighbor for a noise-dependent cost. The new cell is one generation younger and starts with `BIRTH_E`. Otherwise energy accumulates.
-- **Death:** every cell burns energy slowly, now and then breathing out steam (transpiration: forests make their own rain); starved cells vanish, sometimes leaving a seed.
+- **Fullness:** the cell's energy. `PLANT_CAP` is "full".
+- **Stillness:** zero while energy moves into or out of the cell, otherwise counting up.
+- **Consumption:** a plant cell touching water removes it and gains `WATER_GAIN` energy (cells can go overfull, up to what 14 bits hold).
+- **Transfer:** a cell gives to its emptiest less-full neighbor until that neighbor is full, even if that empties the giver. All cells in a block decide from the block as it was at the start of the step, so energy can't be handed straight back.
+- **Bloom:** a full cell that has been still for `SPROUT_DELAY` steps grows into an empty neighbor and gives it half its energy.
 
-So water drunk at a plant's old end is carried to its youngest growth, wherever that is. All tuning lives in `TUNING` in `src/config.js`, with timings at 3x (~180 steps/s).
+Seeds touching water germinate into a plant cell with `GERM_E`. Energy exhaustion (burning energy, transpiring steam, starving) is paused for now, so plants don't die except by fire. Energy runs from the roots to wherever it can sit still, so plants grow at their ends; a source that drinks faster than its stems can carry blooms at the source. The toolbar's Tint button shows plant color as energy only. All tuning lives in `TUNING` in `src/config.js`, with timings at 3x (~180 steps/s).
 
-Rendering: plant brightness tracks stored energy, young (drinking) cells show as bright cells.
+Rendering: plant brightness tracks fullness: full cells are bright, starved ones dim.
 
 ## Other rules
 
@@ -62,7 +62,7 @@ Open through the server, e.g. http://localhost:8000/dev/garden.html. `dev/harnes
 
 ## Cell encoding
 
-One `u32` per cell: `type | data << 8 | variant << 16`. `data` is per-type (fire/smoke/ember lifetime, plant energy). `variant` bits 0-1 pick a color; plants use bits 2-7 for age (a wrapping generation count), and the spare top byte (bits 24-31) counts how long their energy has sat still.
+One `u32` per cell: `type | data << 8 | variant << 16`. `data` is per-type (fire/smoke/ember lifetime, plant energy). `variant` bits 0-1 pick a color; plants keep their energy as 14 bits (`data` plus variant bits 2-7, in `ENERGY_RES` fine units), and bits 24-29 hold stillness.
 
 ## Adding a particle type
 

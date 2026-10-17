@@ -53,11 +53,11 @@ Expectations for sim changes:
 
 **Cell encoding:** each cell is one `u32`: `type | data<<8 | variant<<16`.
 - Use the accessors `gt`, `gd`, `gv` and the constructor `mc` from `common.wgsl.js`; `makeCell` is the JS equivalent.
-- Plants use variant bits 2-7 as age (a generation count wrapping at 64; energy flows only to younger neighbors). Their `data` is energy, and bits 24-31 (above `variant`) count stillness: cycles since energy last moved in or out; `mc` zeroes it.
+- Plant energy is 14 bits in fine units (`ENERGY_RES` per tuning unit): `data` holds the low 8, variant bits 2-7 the high 6. Use `pe`/`mp` (JS: `plantE`/`makePlant` in the harness). Bits 24-29 count stillness (time since energy last moved in or out, every 4 steps); `mp` zeroes it. `tick_plant` also gets `c0`, the block before any cell ticked, and makes its transfer decisions from it, so a cell can't hand back energy it received earlier in the same step.
 
 **Brush** (`brush.wgsl.js`):
 - It's a GPU capsule stamp that edits the current grid in place. It only fills empty cells; the eraser clears all.
-- The starting `data` for a drawn type (fire life, ember life, seed energy) is set here.
+- The starting `data` for a drawn type (fire life, ember life, plant energy) is set here.
 - `src/input.js` queues one `[from, to]` segment per pointer event into `state.segs`, and `main.js` dispatches one brush pass per segment before the sim steps.
 
 **Adding a particle type:**

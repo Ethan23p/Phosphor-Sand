@@ -71,4 +71,11 @@ export function attachToolbar(state, { onClear }) {
     dbg(state.paused ? 'PAUSED' : 'RESUMED');
   });
   document.getElementById('btn-clear').addEventListener('click', onClear);
+
+  const tintBtn = document.getElementById('btn-tint');
+  tintBtn.addEventListener('click', () => {
+    state.plainPlants = !state.plainPlants;
+    tintBtn.textContent = state.plainPlants ? 'Energy' : 'Tint';
+    dbg(state.plainPlants ? 'Plant color: energy only' : 'Plant color: tint + energy');
+  });
 }

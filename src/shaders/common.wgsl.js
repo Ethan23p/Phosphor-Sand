@@ -5,7 +5,7 @@ const u32Consts = obj =>
 
 // Prepended to every shader: params layout, type IDs, tuning, cell accessors, hash.
 export const commonWGSL = `
-struct Params { w:u32, h:u32, phase:u32, frame:u32, _p0:u32, _p1:u32, _p2:u32, _p3:u32 }
+struct Params { w:u32, h:u32, phase:u32, frame:u32, flags:u32, _p1:u32, _p2:u32, _p3:u32 }
 
 ${u32Consts(T)}
 ${u32Consts(TUNING)}
@@ -15,6 +15,11 @@ fn gt(c:u32) -> u32 { return c & 255u; }
 fn gd(c:u32) -> u32 { return (c >> 8u) & 255u; }
 fn gv(c:u32) -> u32 { return (c >> 16u) & 255u; }
 fn mc(t:u32, d:u32, v:u32) -> u32 { return t | (d << 8u) | (v << 16u); }
+// Plant energy is 14 bits, in fine units (ENERGY_RES per unit of tuning):
+// the low 8 in data, the high 6 in variant bits 2-7. Variant bits 0-1 are color.
+const PE_MAX:u32 = 16383u;
+fn pe(c:u32) -> u32 { return ((c >> 8u) & 255u) | (((c >> 18u) & 63u) << 8u); }
+fn mp(e:u32, color:u32) -> u32 { return mc(PLANT, e & 255u, (color & 3u) | ((e >> 8u) << 2u)); }
 
 fn hh(xi:u32) -> u32 {
   var h = xi;

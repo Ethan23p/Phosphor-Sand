@@ -204,7 +204,7 @@ fn tick_fire(cin: Cells, i:u32, b: Block) -> Cells {
       if (j != i && burns(c[j])) {
         var fl_life = 0u;
         if (gt(c[j]) == PLANT) {
-          fl_life = gd(c[j]) / 3u + 20u; // plant energy → fire life
+          fl_life = pe(c[j]) / ENERGY_RES / 3u + 20u; // plant energy → fire life
         } else {
           fl_life = 50u + (roll(b, j, 14u) % 40u);
         }
@@ -248,102 +248,74 @@ fn tick_seed(cin: Cells, i:u32, b: Block) -> Cells {
   if ((roll(b, i, 20u) % GERM_ODDS) == 0u) {
     let j = find_neighbor(c, i, WATER, roll(b, i, 21u));
     if (j < 4u) {
-      c[i] = mc(PLANT, GERM_E, noise_variant(cell_x(b.bx, i), cell_y(b.by, i)));
+      c[i] = mp(GERM_E * ENERGY_RES, noise_variant(cell_x(b.bx, i), cell_y(b.by, i)));
       c[j] = 0u;
     }
   }
   return c;
 }
 
-// Plant age lives in variant bits 2-7; bits 0-1 are color. Age is a generation
-// count: a seed starts at 0 and each sprout is one more than the cell that grew it.
-// It wraps at 64, and "younger" means 1-31 generations ahead, so a gradient runs
-// through a plant of any length and energy only needs it locally.
-fn plant_age(c:u32) -> u32 { return gv(c) >> 2u; }
-fn is_younger(other:u32, me:u32) -> bool { let d = (other - me) & 63u; return d >= 1u && d <= 31u; }
-// Stillness lives in bits 24-31: how long since energy last moved in or out of
-// the cell, counted every other step (one Margolus cycle) so it spans ~2.8s.
-// Rebuilding a cell with mc() zeroes it, so receiving energy resets it.
-fn plant_still(c:u32) -> u32 { return c >> 24u; }
+// PLANT: two scalars and three rules.
+//   Fullness: the cell's energy (14 bits, see pe/mp).
+//   Stillness: bits 24-29; zero while energy moves in or out, otherwise counts
+//   up every 4 steps.
+//   Consumption: water next to the plant becomes energy inside it.
+//   Transfer: a fuller cell fills its emptiest less-full neighbor, until that one is full.
+//   Every cell decides from the block as it was at the start of the step (c0), so
+//   energy a cell just received can't be handed straight back within the same step.
+//   Bloom: a full, still cell grows into an empty neighbor, which gets half its energy.
+fn plant_still(c:u32) -> u32 { return (c >> 24u) & 63u; }
 
-// PLANT ("ageism"): energy only flows from older cells to younger ones.
-//   Drink adjacent water, turning it into energy.
-//   If a neighbor is younger and not full, transfer energy to it;
-//   else, once full, attempt to sprout new growth;
-//   else the energy accumulates.
-fn tick_plant(cin: Cells, i:u32, b: Block) -> Cells {
+fn tick_plant(cin: Cells, c0: Cells, i:u32, b: Block) -> Cells {
   var c = cin;
-  var energy = gd(c[i]);
-  let age = plant_age(c[i]);
+  var energy = pe(c[i]);
+  let color = gv(c[i]) & 3u;
   var still = plant_still(c[i]);
-  var moved = false;
+  var busy = false;
 
-  // Drink: occasionally absorb one adjacent water, unless full
-  if (energy < PLANT_CAP && (roll(b, i, 30u) % ABSORB_ODDS) == 0u) {
+  // Consumption (as long as the energy still fits in the cell's 14 bits)
+  if (energy + WATER_GAIN * ENERGY_RES <= PE_MAX) {
     let j = find_neighbor(c, i, WATER, roll(b, i, 31u));
     if (j < 4u) {
-      energy = min(energy + WATER_GAIN, 255u);
+      energy = energy + WATER_GAIN * ENERGY_RES;
       c[j] = 0u;
+      busy = true;
     }
   }
 
-  // A younger neighbor that isn't full
-  var younger = 4u;
+  // Transfer
+  var dst = 4u;
   let r = roll(b, i, 33u);
   for (var k = 0u; k < 4u; k = k + 1u) {
     let j = (r + k) & 3u;
-    if (j != i && gt(c[j]) == PLANT && is_younger(plant_age(c[j]), age) && gd(c[j]) < PLANT_CAP) { younger = j; break; }
+    if (j == i || (i ^ j) == 3u || gt(c[j]) != PLANT || gt(c0[j]) != PLANT) { continue; }
+    let ej = pe(c0[j]);
+    if (ej < pe(c0[i]) && ej < PLANT_CAP * ENERGY_RES && (dst == 4u || ej < pe(c0[dst]))) { dst = j; }
+  }
+  if (dst < 4u) {
+    let de = pe(c[dst]);
+    let flow = min(energy, PLANT_CAP * ENERGY_RES - min(de, PLANT_CAP * ENERGY_RES)); // until it's full
+    if (flow > 0u) {
+      energy = energy - flow;
+      c[dst] = mp(de + flow, gv(c[dst]));
+      busy = true;
+    }
   }
 
-  if (younger < 4u) {
-    // Transfer energy to it
-    let pe = gd(c[younger]);
-    if (energy > STEM_RESERVE) {
-      let flow = min(min(FLOW_RATE, energy - STEM_RESERVE), PLANT_CAP - pe);
-      energy = energy - flow;
-      c[younger] = mc(PLANT, pe + flow, gv(c[younger]));
-      moved = true;
-    }
-  } else if (energy >= PLANT_CAP && still * 2u >= SPROUT_DELAY && (roll(b, i, 32u) % GROW_ODDS) == 0u) {
-    // Sprout, only once full and still (stems have energy moving through them,
-    // so only the ends of stems bloom):
-    // claim an empty neighbor for a noise-dependent energy cost.
-    // The new cell is one generation younger and starts with BIRTH_E.
+  // Bloom
+  if (!busy && energy >= PLANT_CAP * ENERGY_RES && still * 4u >= SPROUT_DELAY) {
     let j = find_neighbor(c, i, EMPTY, roll(b, i, 47u));
     if (j < 4u) {
-      let jx = cell_x(b.bx, j);
-      let jy = cell_y(b.by, j);
-      let cost = GROW_COST_MIN + u32(f32(GROW_COST_MAX - GROW_COST_MIN) * (1.0 - growth_noise(jx, jy)));
-      if (energy >= cost + GROW_KEEP) {
-        energy = energy - cost;
-        c[j] = mc(PLANT, BIRTH_E, noise_variant(jx, jy) | (((age + 1u) & 63u) << 2u));
-      }
-    }
-  }
-  // (otherwise the energy accumulates)
-
-  // Energy moving out resets stillness; otherwise it counts up, once per cycle
-  if (moved) { still = 0u; }
-  else if ((p.frame & 1u) == 0u) { still = min(still + 1u, 255u); }
-
-  // Metabolism: every cell slowly burns energy, now and then breathing out
-  // steam into open air, so a forest returns part of its water as rain
-  let mr = roll(b, i, 34u);
-  if ((mr % METAB_ODDS) == 0u && energy > 0u) {
-    energy = energy - 1u;
-    if (((mr >> 12u) % TRANSPIRE_ODDS) == 0u) {
-      let j = find_neighbor(c, i, EMPTY, roll(b, i, 37u));
-      if (j < 4u) { c[j] = steam_cell(roll(b, i, 38u)); }
+      let half = energy / 2u;
+      energy = energy - half;
+      c[j] = mp(half, noise_variant(cell_x(b.bx, j), cell_y(b.by, j)));
+      busy = true;
     }
   }
 
-  // Starved cells die, occasionally leaving a seed
-  if (energy == 0u) {
-    if ((roll(b, i, 35u) % SEED_DROP_ODDS) == 0u) { c[i] = mc(SEED, 0u, roll(b, i, 36u) & 3u); }
-    else { c[i] = 0u; }
-  } else {
-    c[i] = mc(PLANT, energy, gv(c[i])) | (still << 24u);
-  }
+  if (busy) { still = 0u; }
+  else if ((p.frame & 3u) == 0u) { still = min(still + 1u, 63u); }
+  c[i] = mp(energy, color) | (still << 24u);
   return c;
 }
 
@@ -455,6 +427,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   );
 
   c = movement(c, b.rng);
+  let c0 = c; // the block before anything ticks, so plants all decide at once
 
   // Visit cells starting from a random slot so no position always acts first
   let start = hh(b.rng ^ 0x5bd1e995u) & 3u;
@@ -465,7 +438,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     else if (t == SMOKE) { c = tick_smoke(c, i); }
     else if (t == STEAM) { c = tick_steam(c, i, b); }
     else if (t == SEED)  { c = tick_seed(c, i, b); }
-    else if (t == PLANT) { c = tick_plant(c, i, b); }
+    else if (t == PLANT) { c = tick_plant(c, c0, i, b); }
     else if (t == EMBER) { c = tick_ember(c, i, b); }
   }
 

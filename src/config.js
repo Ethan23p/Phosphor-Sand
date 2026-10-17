@@ -16,20 +16,10 @@ export const TUNING = {
   // ── Plant life cycle ──
   GERM_E: 200,           // a germinated seed starts with much energy
   GERM_ODDS: 32,         // seed touching water sprouts after ~0.2s
-  WATER_GAIN: 40,        // energy per water drunk
-  ABSORB_ODDS: 8,        // a plant cell touching water drinks ≤ ~22 water/s, while below PLANT_CAP
-  PLANT_CAP: 200,        // "full": a cell stops drinking and stops accepting energy here
-  STEM_RESERVE: 24,      // energy a cell keeps; the rest is passed to a younger neighbor
-  FLOW_RATE: 150,        // max energy a cell passes to a younger neighbor per step
-  BIRTH_E: 8,            // a new cell's starting energy (must stay ≤ GROW_COST_MIN)
-  SPROUT_DELAY: 180,     // a full cell's energy must sit still (no transfer in or out) ~1s before it may sprout; max ~510
-  GROW_ODDS: 4,          // once still, a cell tries to sprout every ~4 steps
-  GROW_COST_MIN: 8,      // energy spent per new cell, at noise=1.0 (fertile)
-  GROW_COST_MAX: 20,     // energy spent per new cell, at noise=0.0 (barren)
-  GROW_KEEP: 4,          // a cell must keep this much after paying for growth
-  METAB_ODDS: 512,       // every cell burns 1 energy per ~2.8s; a cell at reserve starves in ~70s
-  SEED_DROP_ODDS: 16,    // a starved cell leaves a seed instead of empty space
-  TRANSPIRE_ODDS: 64,    // 1 in N energy burned is breathed out as steam: ~60% of a water's worth comes back as rain
+  WATER_GAIN: 40,        // energy per water consumed
+  PLANT_CAP: 100,        // "full": a cell this full (and still) can bloom
+  ENERGY_RES: 64,        // plant energy is stored in fine units, this many per unit
+  SPROUT_DELAY: 4,       // "still": steps without energy moving in or out; max ~250
 
   // ── Fire, water, steam ──
   IGNITE_ODDS: 8,        // fire's chance per step to ignite plants/seeds in its block

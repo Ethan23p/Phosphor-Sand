@@ -6,6 +6,7 @@ import { brushWGSL } from '../src/shaders/brush.wgsl.js';
 
 export { T, makeCell };
 export const W = GRID_W, H = GRID_H, N = W * H;
+const PLAIN = new URLSearchParams(location.search).has('plain');
 const NAMES = Object.fromEntries(Object.entries(T).map(([k, v]) => [v, k]));
 
 export async function createHarness() {
@@ -94,28 +95,36 @@ export async function createHarness() {
   };
 }
 
+// Plant energy, in units of tuning (stored as 14 bits of fine units: data + variant bits 2-7)
+export function plantE(cell) { return (((cell >> 8) & 255) | (((cell >> 18) & 63) << 8)) / TUNING.ENERGY_RES; }
+export function makePlant(e, color = 0) {
+  const f = Math.round(e * TUNING.ENERGY_RES);
+  return makeCell(T.PLANT, f & 255, (color & 3) | ((f >> 8) << 2));
+}
+
 // Mirrors render.wgsl.js closely enough to judge behavior (no CRT effects)
 export function colorOf(cell) {
-  const t = cell & 255, d = (cell >> 8) & 255, v = (cell >> 16) & 255;
+  const t = cell & 255, d = (cell >> 8) & 255; let v = (cell >> 16) & 255;
   const cols = CMAP[t] || [[1, 0, 1]];
+  if (t === T.PLANT && PLAIN) v = 0;  // ?plain: energy-only plant color, like the Tint toggle
   let c = cols[(v & 3) % cols.length];
   if (t === T.FIRE) c = c.map(x => Math.min(1, x * (1 + d / 200)));
   if (t === T.PLANT) {
-    const k = 0.6 + 0.8 * Math.min(d / TUNING.PLANT_CAP, 1);
+    const k = 0.6 + 0.8 * Math.min(plantE(cell) / TUNING.PLANT_CAP, 1);
     c = c.map(x => Math.min(1, x * k));
   }
   return c;
 }
 
-// Default stats: count per type, plus plant energy and age
+// Default stats: count per type, plus average plant energy
 export function stats(a) {
-  const n = {}; let pe = 0, age = 0;
+  const n = {}; let pe = 0;
   for (const cell of a) {
     const t = cell & 255; n[t] = (n[t] || 0) + 1;
-    if (t === T.PLANT) { pe += (cell >> 8) & 255; age += (cell >> 18) & 63; }
+    if (t === T.PLANT) pe += plantE(cell);
   }
   const parts = Object.entries(n).filter(([t]) => +t !== T.EMPTY).map(([t, k]) => `${NAMES[t].toLowerCase()} ${k}`);
-  if (n[T.PLANT]) parts.push(`avgE ${(pe / n[T.PLANT]).toFixed(0)} age ${(age / n[T.PLANT]).toFixed(0)}`);
+  if (n[T.PLANT]) parts.push(`avgE ${(pe / n[T.PLANT]).toFixed(0)}`);
   return parts.join(' | ');
 }
 
