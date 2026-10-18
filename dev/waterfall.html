@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>waterfall scenario</title></head>
+<body style="background:#111;color:#ccc;margin:8px;font:12px monospace"><pre id="out">running...</pre>
+<script type="module">
+import { createHarness, blankGrid, fill, T, makeCell, W, H, plantE } from './harness.js';
+// A big curved stone basin of water drains through a hole into a long fall onto
+// seeds on the floor, with a stone stub hanging beside the hole. Does the plant
+// flourish at the bottom, or climb the stream and eat the waterfall?
+const h = await createHarness();
+const g = blankGrid();
+const STONE = makeCell(T.STONE, 0, 0), WATER = makeCell(T.WATER, 0, 0);
+const HOLE = [78, 90], STUB = [90, 104, 205], THICK = 12, LEVEL = 100; // LEVEL: water line
+// basin floor height: sloping down to the hole from the left, curving up to the right
+const yb = x => x < HOLE[0] ? Math.round(140 + 30 * x / HOLE[0])
+  : Math.round(170 - 110 * Math.pow(Math.max(0, x - HOLE[1]) / (W - HOLE[1]), 1.5));
+for (let x = 0; x < W; x++) {
+  fill(g, x, x + 1, LEVEL, yb(x), WATER);
+  fill(g, x, x + 1, yb(x), yb(x) + THICK, STONE);
+}
+fill(g, HOLE[0], HOLE[1], 0, 200, 0);                          // the hole (and no water right over it yet)
+fill(g, HOLE[0], HOLE[1], LEVEL, yb(HOLE[0]) - 10, WATER);     // refill the basin above the hole
+fill(g, STUB[0], STUB[1], yb(STUB[0]), STUB[2], STONE);         // stub hanging beside it
+h.load(g);
+h.brush({ x0: 66, y0: 252, x1: 100, y1: 252, r: 2, type: T.SEED, density: 60 });
+
+const BOTTOM = 225;
+const regions = a => {
+  let w = 0, up = 0, low = 0, e = 0;
+  a.forEach((c, i) => {
+    const y = (i / W) | 0, t = c & 255;
+    if (t === T.WATER) w++;
+    if (t === T.PLANT) { e += plantE(c); if (y < BOTTOM) up++; else low++; }
+  });
+  const p = up + low;
+  return `water ${String(w).padStart(5)} plant ${String(p).padStart(4)} avgE ${String(p ? Math.round(e / p) : 0).padStart(3)} | at the bottom ${low} up the fall ${up}`;
+};
+await h.snapshot(regions);
+for (const t of [5, 15, 30, 60, 100, 180]) { h.run(t * 180 - h.step); await h.snapshot(regions); }
+h.finish(`waterfall: a basin drains in a long fall onto seeds (bottom = below y ${BOTTOM})`);
+</script></body></html>

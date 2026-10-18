@@ -14,7 +14,7 @@ Phosphor Sand is a WebGPU falling-sand toy. It's plain ES modules with no build 
 ## Testing: dev scenarios
 
 There's no unit test suite. Behavior is verified by running the real shaders on the GPU:
-- `dev/*.html` pages (`reservoir`, `tunnel`, `sealed`, `pool`, `garden`, `elements`) script an initial grid and brush input with `dev/harness.js`.
+- `dev/*.html` pages (`waterfall`, `reservoir`, `tunnel`, `sealed`, `pool`, `garden`, `elements`) script an initial grid and brush input with `dev/harness.js`.
 - `createHarness({ wgsl, extra })` runs a modified sim shader with extra bind group entries. Use it for temporary instrumentation, e.g. atomic counters at binding 5, and don't commit those probe pages.
 - Each page renders a time-lapse strip into `#cv` and per-snapshot stats into `#out`.
 - Open one through the server, e.g. `/dev/garden.html`.

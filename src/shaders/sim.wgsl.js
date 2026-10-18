@@ -496,10 +496,13 @@ fn tick_plant(cin: Cells, m: ptr<function, Moms>, d: ptr<function, Dists>, i:u32
   let mom = (*m)[i];
 
   // Bloom: high energy, low momentum, and more likely the farther from the
-  // roots (certain at BLOOM_DIST cells, 1 in BLOOM_NEAR_ODDS at the roots).
+  // roots: the chance per step is (distance / BLOOM_DIST) to the power
+  // BLOOM_RAMP, certain at BLOOM_DIST cells and at least 1 in BLOOM_NEAR_ODDS.
   // Grows into an orthogonal neighbor of open air, or, less often and only
   // fuller, of water (replacing it)
-  var far = max((*d)[i] * BLOOM_NEAR_ODDS, 2u * BLOOM_DIST) > roll(b, i, 52u) % (2u * BLOOM_DIST * BLOOM_NEAR_ODDS);
+  let reach_b = min(f32((*d)[i]) / f32(2u * BLOOM_DIST), 1.0);
+  let p_b = max(pow(reach_b, f32(BLOOM_RAMP)), 1.0 / f32(BLOOM_NEAR_ODDS));
+  var far = f32(roll(b, i, 52u) & 0xFFFFFFu) / 16777216.0 < p_b;
   // With BLOOM_TIP, only a tip blooms: no plant neighbor in the block is farther out
   for (var j = 0u; j < 4u; j = j + 1u) {
     if (BLOOM_TIP == 1u && j != i && gt(c[j]) == PLANT && (*d)[j] > (*d)[i]) { far = false; }
