@@ -430,8 +430,11 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, b: Block) {
       if (i == j || (q.x == 0 && q.y == 0 && en == 0u)) { continue; }
       let tj = gt((*c)[j]);
       if (tj != PLANT) {
-        // Air (and anything solid) reflects with moderate loss, water with small
-        let loss = select(AIR_LOSS, WATER_LOSS, tj == WATER);
+        // Solids reflect nearly elastically, water with small loss, open air
+        // with moderate loss (so energy slows and gathers where the plant can grow)
+        var loss = SOLID_LOSS;
+        if (tj == WATER) { loss = WATER_LOSS; }
+        if (tj == EMPTY) { loss = AIR_LOSS; }
         let r = plant_reflect(q, ((i ^ j) & 1u) != 0u, ((i ^ j) & 2u) != 0u, loss);
         m1[i] += turn_mom(r, plant_turn(b, i, 53u + j)) - q;
       } else if (full[j]) {
@@ -514,8 +517,10 @@ fn tick_plant(cin: Cells, m: ptr<function, Moms>, d: ptr<function, Dists>, i:u32
     return c;
   }
 
-  // Damp: moving energy settles into resting energy
-  let damped = vec2i(vec2f(mom) * (f32(1000u - DAMP) / 1000.0));
+  // Damp: moving energy settles into resting energy, hardly at all near the
+  // roots and up to DAMP per mille from BLOOM_DIST cells out
+  let reach = f32(min((*d)[i], 2u * BLOOM_DIST)) / f32(2u * BLOOM_DIST);
+  let damped = vec2i(vec2f(mom) * (1.0 - f32(DAMP) / 1000.0 * reach));
   (*m)[i] = clamp_mom(damped, energy);
   c[i] = mp(energy, color);
   return c;
