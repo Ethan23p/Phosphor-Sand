@@ -369,12 +369,24 @@ fn plant_reflect(q:vec2i, fx:bool, fy:bool, loss:u32) -> vec2i {
   return vec2i(vec2f(r) * (f32(100u - loss) / 100.0));
 }
 
+// Glance off stone (or anything solid) or a full plant cell: turn about 90
+// degrees, the side picked with odds set by the noise map, up to DEFLECT_SPREAD
+// degrees off square, losing SOLID_LOSS %
+fn plant_deflect(q:vec2i, b: Block, i:u32, salt:u32) -> vec2i {
+  let n = growth_noise(cell_x(b.bx, i), cell_y(b.by, i));
+  let r = roll(b, i, salt);
+  let side = select(-1.0, 1.0, f32(r & 0xFFFFu) / 65535.0 < n);
+  let jit = (f32((r >> 16u) & 0xFFFFu) / 65535.0 - 0.5) * 2.0 * f32(DEFLECT_SPREAD);
+  let t = turn_mom(q, (side * 90.0 + jit) * 0.0174533);
+  return vec2i(vec2f(t) * (f32(100u - SOLID_LOSS) / 100.0));
+}
+
 // Transfer, for the whole block at once. A cell's moving energy splits between
 // the two nearest of the 8 directions: an axis part and a diagonal part. Each
 // part moves when its target is in this block (every other step), carrying its
 // share of p; the energy left behind is at rest. In-block targets are i^1, i^2
 // and i^3.
-fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, b: Block) {
+fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: Dists, b: Block) {
   var e0: array<u32, 4>;
   var oe: array<array<u32, 4>, 4>;   // energy sent from i to j
   var oq: array<array<vec2i, 4>, 4>; // momentum sent from i to j
@@ -429,33 +441,23 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, b: Block) {
       let en = oe[i][j];
       if (i == j || (q.x == 0 && q.y == 0 && en == 0u)) { continue; }
       let tj = gt((*c)[j]);
-      if (tj != PLANT) {
-        // Solids reflect nearly elastically, water with small loss, open air
-        // with moderate loss (so energy slows and gathers where the plant can grow)
-        var loss = SOLID_LOSS;
-        if (tj == WATER) { loss = WATER_LOSS; }
-        if (tj == EMPTY) { loss = AIR_LOSS; }
+      if (tj == EMPTY || tj == WATER) {
+        // Water reflects with small loss. Open air reflects with hardly any
+        // loss near the roots, rising to AIR_LOSS at BLOOM_DIST cells out, so
+        // energy races through the young part of the plant and slows at its
+        // far edges, where it can bloom
+        let reach = f32(min(d[i], 2u * BLOOM_DIST)) / f32(2u * BLOOM_DIST);
+        let loss = select(u32(round(f32(AIR_LOSS) * reach)), WATER_LOSS, tj == WATER);
         let r = plant_reflect(q, ((i ^ j) & 1u) != 0u, ((i ^ j) & 2u) != 0u, loss);
         m1[i] += turn_mom(r, plant_turn(b, i, 53u + j)) - q;
-      } else if (full[j]) {
-        // Full: the energy stays, the momentum passes on
-        m1[i] -= q; m1[j] += q;
+      } else if (tj != PLANT || full[j]) {
+        // Stone and the like, or a full plant cell: the energy stays and the
+        // momentum glances off sideways
+        m1[i] += plant_deflect(q, b, i, 57u + j) - q;
       } else {
         e1[i] -= i32(en); e1[j] += i32(en);
         m1[i] -= q; m1[j] += q;
       }
-    }
-  }
-  // A full cell pushed past its own energy reflects the excess back to its senders
-  for (var j = 0u; j < 4u; j = j + 1u) {
-    if (!full[j] || inc[j] == 0u) { continue; }
-    let kept = clamp_mom(m1[j], u32(e1[j]));
-    let excess = m1[j] - kept;
-    m1[j] = kept;
-    if (excess.x == 0 && excess.y == 0) { continue; }
-    for (var i = 0u; i < 4u; i = i + 1u) {
-      if (i == j || oe[i][j] == 0u) { continue; }
-      m1[i] -= vec2i(vec2f(excess) * (f32(oe[i][j]) / f32(inc[j])));
     }
   }
   for (var i = 0u; i < 4u; i = i + 1u) {
@@ -652,7 +654,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
   c = movement(c, b.rng);
   plant_consume(&c, &m, &dist, b);
-  plant_flow(&c, &m, b);
+  plant_flow(&c, &m, dist, b);
   plant_dist(c, &dist, b);
 
   // Visit cells starting from a random slot so no position always acts first

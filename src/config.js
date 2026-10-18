@@ -18,10 +18,11 @@ export const TUNING = {
   GERM_ODDS: 32,         // seed touching water sprouts after ~0.2s
   WATER_GAIN: 10,        // energy per water consumed (4 waters fill a cell)
   NOISE_TURN: 45,        // degrees the noise map turns energy as it's drunk or bounces
-  SPREAD: 90,            // plus up to this many degrees of random turn either way
-  AIR_LOSS: 60,          // % of momentum lost bouncing off open air
+  SPREAD: 30,            // plus up to this many degrees of random turn either way
+  AIR_LOSS: 60,          // % of momentum lost bouncing off open air at BLOOM_DIST cells out (none at the roots)
   WATER_LOSS: 10,        // % of momentum lost bouncing off water
-  SOLID_LOSS: 0,         // % of momentum lost bouncing off anything else
+  SOLID_LOSS: 0,         // % lost glancing off stone etc. or a full plant cell...
+  DEFLECT_SPREAD: 15,    // ...which turns it 90 degrees (side biased by the noise map), give or take this many
   DAMP: 20,              // per mille of momentum settling into rest each step, scaled up from 0 at the roots to full at BLOOM_DIST
   PLANT_CAP: 40,         // "full": no more drinking, and arriving energy stays put
   BLOOM_E: 20,           // a cell this full can bloom into open air...
