@@ -297,8 +297,27 @@ fn clamp_mom(v:vec2i, e:u32) -> vec2i {
 // (and both toward the diagonal i^3)
 fn slot_dir(i:u32) -> vec2i { return vec2i(select(-1, 1, (i & 1u) == 0u), select(-1, 1, (i & 2u) == 0u)); }
 
+// How far energy turns when it's drunk or bounces, in radians: the noise map
+// turns it up to NOISE_TURN degrees (the same way every time at a given spot),
+// plus a random spread of up to SPREAD degrees either way
+fn plant_turn(b: Block, i:u32, salt:u32) -> f32 {
+  let n = growth_noise(cell_x(b.bx, i), cell_y(b.by, i));
+  let r = f32(roll(b, i, salt) & 0xFFFFu) / 65535.0;
+  return ((n - 0.5) * 2.0 * f32(NOISE_TURN) + (r - 0.5) * 2.0 * f32(SPREAD)) * 0.0174533;
+}
+
+// Rotate a momentum, keeping its moving energy (speed8)
+fn turn_mom(v:vec2i, a:f32) -> vec2i {
+  let n = speed8(v);
+  if (n == 0u) { return v; }
+  let f = vec2f(v);
+  let r = vec2f(f.x * cos(a) - f.y * sin(a), f.x * sin(a) + f.y * cos(a));
+  let ar = abs(r);
+  return vec2i(round(r * (f32(n) / (max(ar.x, ar.y) + (RT2 - 1.0) * min(ar.x, ar.y)))));
+}
+
 // Consumption: a plant cell that isn't full drinks a neighboring water. The new
-// energy is all moving, away from the water, turned by the noise map.
+// energy is all moving, away from the water, turned (see plant_turn).
 fn plant_consume(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, Dists>, b: Block) {
   let start = roll(b, 0u, 30u) & 3u;
   for (var k = 0u; k < 4u; k = k + 1u) {
@@ -309,8 +328,7 @@ fn plant_consume(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<functio
     let j = find_neighbor(*c, i, WATER, roll(b, i, 31u));
     if (j == 4u) { continue; }
     let away = vec2f(f32(i & 1u) - f32(j & 1u), f32(i >> 1u) - f32(j >> 1u));
-    let n = growth_noise(cell_x(b.bx, i), cell_y(b.by, i));
-    let a = atan2(away.y, away.x) + (n - 0.5) * 2.0 * f32(NOISE_TURN) * 0.0174533;
+    let a = atan2(away.y, away.x) + plant_turn(b, i, 32u);
     let u = vec2f(cos(a), sin(a));
     let ad = abs(u);
     let g = f32(WATER_GAIN * ENERGY_RES) / (max(ad.x, ad.y) + (RT2 - 1.0) * min(ad.x, ad.y));
@@ -345,6 +363,7 @@ fn plant_dist(c: Cells, d: ptr<function, Dists>, b: Block) {
 }
 
 // Bounce off something that isn't plant: the momentum into it flips, with loss
+// (then turns, see plant_turn)
 fn plant_reflect(q:vec2i, fx:bool, fy:bool, loss:u32) -> vec2i {
   let r = vec2i(select(q.x, -q.x, fx), select(q.y, -q.y, fy));
   return vec2i(vec2f(r) * (f32(100u - loss) / 100.0));
@@ -413,7 +432,8 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, b: Block) {
       if (tj != PLANT) {
         // Air (and anything solid) reflects with moderate loss, water with small
         let loss = select(AIR_LOSS, WATER_LOSS, tj == WATER);
-        m1[i] += plant_reflect(q, ((i ^ j) & 1u) != 0u, ((i ^ j) & 2u) != 0u, loss) - q;
+        let r = plant_reflect(q, ((i ^ j) & 1u) != 0u, ((i ^ j) & 2u) != 0u, loss);
+        m1[i] += turn_mom(r, plant_turn(b, i, 53u + j)) - q;
       } else if (full[j]) {
         // Full: the energy stays, the momentum passes on
         m1[i] -= q; m1[j] += q;
