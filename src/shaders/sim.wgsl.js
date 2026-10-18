@@ -431,9 +431,13 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: Dists, b: Bloc
   var e1: array<i32, 4>;
   var m1: Moms;
   var full: array<bool, 4>;
+  var cap: array<u32, 4>;
   for (var i = 0u; i < 4u; i = i + 1u) {
     e1[i] = i32(e0[i]); m1[i] = (*m)[i];
-    full[i] = gt((*c)[i]) == PLANT && e0[i] + inc[i] > PLANT_CAP * ENERGY_RES;
+    // With FULL_BLOOMLESS, a cell with no open air to bloom into is full at BLOOM_E
+    let air = gt((*c)[i ^ 1u]) == EMPTY || gt((*c)[i ^ 2u]) == EMPTY;
+    cap[i] = select(PLANT_CAP, BLOOM_E, FULL_BLOOMLESS == 1u && !air) * ENERGY_RES;
+    full[i] = gt((*c)[i]) == PLANT && e0[i] + inc[i] > cap[i];
   }
   for (var i = 0u; i < 4u; i = i + 1u) {
     for (var j = 0u; j < 4u; j = j + 1u) {
@@ -450,17 +454,18 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: Dists, b: Bloc
         let loss = select(u32(round(f32(AIR_LOSS) * reach)), WATER_LOSS, tj == WATER);
         let r = plant_reflect(q, ((i ^ j) & 1u) != 0u, ((i ^ j) & 2u) != 0u, loss);
         m1[i] += turn_mom(r, plant_turn(b, i, 53u + j, NOISE_TURN, SPREAD)) - q;
-      } else if (tj == PLANT && full[j] && CRADLE == 1u) {
-        // A full plant cell takes the momentum but not the energy, like a
-        // Newton's cradle: the packet stops here and the full cell's own
-        // energy moves on along it
-        m1[i] -= q; m1[j] += q;
       } else if (tj != PLANT || full[j]) {
-        // Stone and the like (or a full plant cell, without CRADLE): the
-        // momentum glances off sideways, and if the cell it now points at is
-        // in this block and is a plant with room, the packet goes on there in
-        // the same step
-        let t = plant_deflect(q, b, i, 57u + j);
+        // Stone and the like, or a full plant cell: the momentum glances off
+        // sideways, and if the cell it now points at is in this block and is a
+        // plant with room, the packet goes on there in the same step. A full
+        // plant cell first takes CRADLE % of the momentum but not the energy,
+        // like a Newton's cradle, so its own energy moves on along it
+        var qr = q;
+        if (tj == PLANT && CRADLE > 0u) {
+          let qc = vec2i(vec2f(q) * (f32(CRADLE) / 100.0));
+          m1[i] -= qc; m1[j] += qc; qr = q - qc;
+        }
+        let t = plant_deflect(qr, b, i, 57u + j);
         var k = 4u;
         var best = 0.7071 * length(vec2f(t)); // within 45 degrees
         for (var s2 = 1u; s2 < 4u; s2 = s2 + 1u) {
@@ -470,11 +475,11 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: Dists, b: Bloc
           let dt = dot(normalize(dv), vec2f(t));
           if (dt > best) { best = dt; k = kk; }
         }
-        if (k < 4u && gt((*c)[k]) == PLANT && e1[k] + i32(en) <= i32(PLANT_CAP * ENERGY_RES)) {
+        if (k < 4u && gt((*c)[k]) == PLANT && e1[k] + i32(en) <= i32(cap[k])) {
           e1[i] -= i32(en); e1[k] += i32(en);
-          m1[i] -= q; m1[k] += t;
+          m1[i] -= qr; m1[k] += t;
         } else {
-          m1[i] += t - q;
+          m1[i] += t - qr;
         }
       } else {
         e1[i] -= i32(en); e1[j] += i32(en);
@@ -526,11 +531,13 @@ fn tick_plant(cin: Cells, m: ptr<function, Moms>, d: ptr<function, Dists>, i:u32
   }
 
   // Decay: burn one fine unit every ~METAB_ODDS / ENERGY_RES steps (one whole
-  // unit per ~METAB_ODDS), sometimes breathing out steam into open air
+  // unit per ~METAB_ODDS), plus METAB_FILL more in proportion to how full the
+  // cell is, sometimes breathing out steam into open air
   let mr = roll(b, i, 34u);
   if ((mr % max(METAB_ODDS / ENERGY_RES, 1u)) == 0u && energy > 0u) {
-    energy = energy - 1u;
-    if (((mr >> 8u) % (TRANSPIRE_ODDS * ENERGY_RES)) == 0u) {
+    let burn = min(1u + energy * METAB_FILL / (PLANT_CAP * ENERGY_RES), energy);
+    energy = energy - burn;
+    if (((mr >> 8u) % (TRANSPIRE_ODDS * ENERGY_RES)) < burn) {
       let j = find_neighbor(c, i, EMPTY, roll(b, i, 37u));
       if (j < 4u) { c[j] = steam_cell(roll(b, i, 38u)); }
     }
@@ -545,8 +552,11 @@ fn tick_plant(cin: Cells, m: ptr<function, Moms>, d: ptr<function, Dists>, i:u32
   }
 
   // Damp: moving energy settles into resting energy, hardly at all near the
-  // roots and up to DAMP per mille from BLOOM_DIST cells out
-  let reach = f32(min((*d)[i], 2u * BLOOM_DIST)) / f32(2u * BLOOM_DIST);
+  // roots and up to DAMP per mille from BLOOM_DIST cells out (with DAMP_AIR,
+  // the full DAMP but only next to open air)
+  let air = gt(c[i ^ 1u]) == EMPTY || gt(c[i ^ 2u]) == EMPTY;
+  let reach = select(f32(min((*d)[i], 2u * BLOOM_DIST)) / f32(2u * BLOOM_DIST),
+                     select(0.0, 1.0, air), DAMP_AIR == 1u);
   let damped = vec2i(vec2f(mom) * (1.0 - f32(DAMP) / 1000.0 * reach));
 
   (*m)[i] = clamp_mom(damped, energy);

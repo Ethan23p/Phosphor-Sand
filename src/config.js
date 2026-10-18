@@ -23,11 +23,13 @@ export const TUNING = {
   SPREAD: 30,            // plus up to this many degrees of random turn either way
   AIR_LOSS: 60,          // % of momentum lost bouncing off open air at BLOOM_DIST cells out (none at the roots)
   WATER_LOSS: 10,        // % of momentum lost bouncing off water
-  CRADLE: 0,             // 1: a full plant cell takes a packet's momentum but not its energy (Newton's cradle); 0: it deflects it like stone
+  CRADLE: 0,             // % of a packet's momentum a full plant cell takes without its energy (Newton's cradle); the rest deflects like stone
   SOLID_LOSS: 0,         // % lost glancing off stone etc. or a full plant cell...
   DEFLECT_SPREAD: 15,    // ...which turns it 90 degrees (side biased by the noise map), give or take this many
   DAMP: 20,              // per mille of momentum settling into rest each step, scaled up from 0 at the roots to full at BLOOM_DIST
+  DAMP_AIR: 0,           // 1: damp only cells next to open air (that could bloom), instead of by root distance
   PLANT_CAP: 40,         // "full": no more drinking, and arriving energy stays put
+  FULL_BLOOMLESS: 1,     // 1: a cell with no open air to bloom into is already full at BLOOM_E
   BLOOM_E: 20,           // a cell this full can bloom into open air...
   BLOOM_MOVING: 30,      // ...if at most this % of its energy is moving
   BLOOM_DIST: 20,        // ...and certainly this many cells from the roots
@@ -39,6 +41,7 @@ export const TUNING = {
   BLOOM_WATER_ODDS: 8,   // ...and is tried 1 in N as often
   ENERGY_RES: 64,        // plant energy is stored in fine units, this many per unit
   METAB_ODDS: 1280,      // every cell burns 1 energy per ~7s; a full cell lasts ~4.7 min alone
+  METAB_FILL: 0,         // ...plus this many times that again in proportion to how full it is
   SEED_DROP_ODDS: 16,    // a cell that runs empty leaves a seed instead of empty space
   TRANSPIRE_ODDS: 64,    // 1 in N energy burned is breathed out as steam
 
