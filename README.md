@@ -51,7 +51,7 @@ Plant energy runs on two quantities, energy and momentum; larger behavior (flow 
 
 All tuning lives in `TUNING` in `src/config.js`, with timings at 3x (~180 steps/s).
 
-Rendering: plant brightness tracks fullness: full cells are bright, starved ones dim.
+Rendering: plant brightness tracks fullness, from 0.25x (nearly empty) to 1.25x (full).
 
 ## Other rules
 

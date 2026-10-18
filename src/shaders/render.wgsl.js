@@ -57,9 +57,9 @@ fn gc(cell: u32) -> vec3f {
   if (gt(cell) == FIRE) {
     col = col * (1.0 + f32(gd(cell)) / 200.0);
   }
-  // Plant: brightness tracks stored energy
+  // Plant: brightness tracks stored energy, from dim (nearly empty) to bright (full)
   if (gt(cell) == PLANT) {
-    col = col * (0.6 + 0.8 * min(f32(pe(cell)) / f32(PLANT_CAP * ENERGY_RES), 1.0));
+    col = col * (0.25 + 1.0 * min(f32(pe(cell)) / f32(PLANT_CAP * ENERGY_RES), 1.0));
   }
   // Ember glow: gentle pulse
   if (gt(cell) == EMBER) {

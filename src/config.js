@@ -32,7 +32,7 @@ export const TUNING = {
   BLOOM_WATER_E: 190,    // blooming into water needs more energy...
   BLOOM_WATER_ODDS: 8,   // ...and is tried 1 in N as often
   ENERGY_RES: 64,        // plant energy is stored in fine units, this many per unit
-  METAB_ODDS: 512,       // every cell burns 1 energy per ~2.8s; a full cell lasts ~9.5 min alone
+  METAB_ODDS: 128,       // every cell burns 1 energy per ~0.7s; a full cell lasts ~2.4 min alone
   SEED_DROP_ODDS: 16,    // a cell that runs empty leaves a seed instead of empty space
   TRANSPIRE_ODDS: 64,    // 1 in N energy burned is breathed out as steam
 
