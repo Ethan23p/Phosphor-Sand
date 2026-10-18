@@ -45,9 +45,10 @@ export async function createHarness({ wgsl = simWGSL, extra = [] } = {}) {
 
   return {
     get step() { return step; },
-    load(g) {
+    // mom (optional): the plant buffer to start from, as h.read(true) returns it
+    load(g, mom = new Uint32Array(2 * N)) {
       grids.forEach(b => device.queue.writeBuffer(b, 0, g));
-      moms.forEach(b => device.queue.writeBuffer(b, 0, new Uint32Array(2 * N)));
+      moms.forEach(b => device.queue.writeBuffer(b, 0, mom));
       cur = 0; step = 0;
     },
     // Same capsule brush the app uses: only fills empty cells (eraser clears all)
@@ -73,17 +74,19 @@ export async function createHarness({ wgsl = simWGSL, extra = [] } = {}) {
       const e = device.createCommandEncoder(); e.copyBufferToBuffer((mom ? moms : grids)[cur], 0, rb, 0, n); device.queue.submit([e.finish()]);
       await rb.mapAsync(GPUMapMode.READ, 0, n); const a = new Uint32Array(rb.getMappedRange(0, n)).slice(); rb.unmap(); return a;
     },
-    async snapshot(statsFn = stats) {
-      const a = await this.read();
-      const line = `step ${String(step).padStart(5)} (${(step / 180).toFixed(1).padStart(5)}s @3x): ${statsFn(a)}`;
-      frames.push({ a, line });
+    // With mom = true the plant buffer is kept too, statsFn gets it as its second
+    // argument, and finish draws a second row showing the moving energy
+    async snapshot(statsFn = stats, { mom = false } = {}) {
+      const a = await this.read(), m = mom ? await this.read(true) : null;
+      const line = `step ${String(step).padStart(5)} (${(step / 180).toFixed(1).padStart(5)}s @3x): ${statsFn(a, m)}`;
+      frames.push({ a, m, line });
       console.log(line);
       return a;
     },
     // Render all snapshots side by side (scale 2) and print stats under them
     finish(title) {
-      const S = 2, cv = document.createElement('canvas');
-      cv.id = 'cv'; cv.width = W * frames.length * S + (frames.length - 1) * 4; cv.height = H * S;
+      const S = 2, cv = document.createElement('canvas'), rows = frames.some(f => f.m) ? 2 : 1;
+      cv.id = 'cv'; cv.width = W * frames.length * S + (frames.length - 1) * 4; cv.height = H * S * rows + (rows - 1) * 4;
       const ctx = cv.getContext('2d'); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cv.width, cv.height);
       frames.forEach((f, k) => {
         const img = ctx.createImageData(W, H);
@@ -94,7 +97,19 @@ export async function createHarness({ wgsl = simWGSL, extra = [] } = {}) {
         const tmp = document.createElement('canvas'); tmp.width = W; tmp.height = H; tmp.getContext('2d').putImageData(img, 0, 0);
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(tmp, k * (W * S + 4), 0, W * S, H * S);
-        ctx.fillStyle = '#fff'; ctx.font = '20px monospace'; ctx.fillText(f.line.match(/\(\s*([\d.]+)s/)[1] + 's', k * (W * S + 4) + 8, 24);
+        if (f.m) {
+          // moving energy: black at rest, through red to white at a whole drink's worth
+          for (let i = 0; i < N; i++) {
+            const t = f.a[i] & 255, o = i * 4;
+            if (t !== T.PLANT) { const c = colorOf(f.a[i]); for (let q = 0; q < 3; q++) img.data[o + q] = c[q] * 60; continue; }
+            const [mx, my] = momOf(f.m[2 * i]), sp = Math.max(Math.abs(mx), Math.abs(my)) + 0.4142 * Math.min(Math.abs(mx), Math.abs(my));
+            const v = Math.min(sp / TUNING.WATER_GAIN, 1);
+            img.data[o] = 40 + 215 * Math.min(v * 3, 1); img.data[o + 1] = 40 + 215 * Math.max(0, v * 1.5 - 0.5); img.data[o + 2] = 40 + 215 * Math.max(0, v * 3 - 2);
+          }
+          tmp.getContext('2d').putImageData(img, 0, 0);
+          ctx.drawImage(tmp, k * (W * S + 4), H * S + 4, W * S, H * S);
+        }
+        ctx.fillStyle = '#fff'; ctx.font = '20px monospace'; ctx.fillText(f.line.match(/step +(\d+)/)[1] + ' / ' + f.line.match(/\(\s*([\d.]+)s/)[1] + 's', k * (W * S + 4) + 8, 24);
       });
       document.body.prepend(cv);
       const out = document.getElementById('out');

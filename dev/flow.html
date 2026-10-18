@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>flow scenario</title></head>
+<body style="background:#111;color:#ccc;margin:8px;font:12px monospace"><pre id="out">running...</pre>
+<script type="module">
+import { createHarness, blankGrid, fill, T, makeCell, W, H, makePlant, plantE, momOf } from './harness.js';
+// Two big slabs of plant at rest, half full, with a column of water along
+// their left edge, to watch energy travel through a plant frame by frame.
+//   top:    walled in by stone on every side (no air, so nothing blooms)
+//   bottom: open air above it
+// The second row of the strip shows moving energy (black at rest, through red
+// to white at a whole drink's worth).
+const h = await createHarness();
+const g = blankGrid(), mom = new Uint32Array(2 * W * H);
+const STONE = makeCell(T.STONE, 0, 0), WATER = makeCell(T.WATER, 0, 0);
+const X0 = 8, X1 = W - 4, E0 = 20, SLABS = [[20, 100, 'top'], [150, 230, 'bottom']];
+fill(g, 0, W, 0, H, STONE);
+for (const [y0, y1, name] of SLABS) {
+  fill(g, 2, X0, y0, y1, WATER);                     // water column
+  for (let y = y0; y < y1; y++) for (let x = X0; x < X1; x++) {
+    g[y * W + x] = makePlant(E0, (x * 7 + y * 13) & 3);
+    mom[2 * (y * W + x) + 1] = Math.min(2 * (x - X0), 255); // root distance, in half cells
+  }
+  if (name === 'bottom') fill(g, X0, X1, y0 - 40, y0, 0); // air above
+}
+h.load(g, mom);
+
+const stats = (a, m) => SLABS.map(([y0, y1, name]) => {
+  let e = 0, mv = 0, mx = 0, far = 0;
+  for (let y = y0 - 40; y < y1; y++) for (let x = X0; x < X1; x++) {
+    const i = y * W + x;
+    if ((a[i] & 255) !== T.PLANT) continue;
+    const [vx, vy] = momOf(m[2 * i]), sp = Math.max(Math.abs(vx), Math.abs(vy)) + 0.4142 * Math.min(Math.abs(vx), Math.abs(vy));
+    e += plantE(a[i]); mv += sp; mx += sp * (x - X0);
+    if (sp >= 0.5) far = Math.max(far, x - X0);
+  }
+  return `${name}: E ${Math.round(e)} moving ${Math.round(mv)} centroid x ${mv ? (mx / mv).toFixed(1) : '-'} farthest ${far}`;
+}).join(' || ');
+await h.snapshot(stats, { mom: true });
+for (const s of [8, 16, 32, 64, 128, 256, 512, 1024]) { h.run(s - h.step); await h.snapshot(stats, { mom: true }); }
+h.finish('flow: plant slabs half full at rest, water along the left edge (top walled in, bottom open above)');
+</script></body></html>
