@@ -24,6 +24,10 @@ export const TUNING = {
   PLANT_CAP: 200,        // "full": no more drinking, and arriving energy stays put
   BLOOM_E: 160,          // a cell this full can bloom into open air...
   BLOOM_MOVING: 10,      // ...if at most this % of its energy is moving
+  BLOOM_DIST: 20,        // ...and certainly this many cells from the roots
+  BLOOM_NEAR_ODDS: 256,  //    (1 in N at the roots, rising with distance)
+  BLOOM_TIP: 1,          // 1: only tips bloom (no plant neighbor farther from the roots)
+  DIST_CREEP_ODDS: 8,    // root distance creeps up 1/N per step unless confirmed
   BLOOM_WATER_E: 190,    // blooming into water needs more energy...
   BLOOM_WATER_ODDS: 8,   // ...and is tried 1 in N as often
   ENERGY_RES: 64,        // plant energy is stored in fine units, this many per unit

@@ -20,10 +20,10 @@ export async function createHarness() {
 
   const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
   const grids = [0, 1].map(() => device.createBuffer({ size: N * 4, usage }));
-  const moms = [0, 1].map(() => device.createBuffer({ size: N * 4, usage }));
+  const moms = [0, 1].map(() => device.createBuffer({ size: N * 8, usage })); // per cell: momentum, root distance
   const pBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const bBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-  const rb = device.createBuffer({ size: N * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+  const rb = device.createBuffer({ size: N * 8, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
   const simBGs = [[0, 1], [1, 0]].map(([a, b]) => device.createBindGroup({ layout: sim.getBindGroupLayout(0), entries: [
     { binding: 0, resource: { buffer: grids[a] } }, { binding: 1, resource: { buffer: grids[b] } }, { binding: 2, resource: { buffer: pBuf } },
     { binding: 3, resource: { buffer: moms[a] } }, { binding: 4, resource: { buffer: moms[b] } }] }));
@@ -45,7 +45,7 @@ export async function createHarness() {
     get step() { return step; },
     load(g) {
       grids.forEach(b => device.queue.writeBuffer(b, 0, g));
-      moms.forEach(b => device.queue.writeBuffer(b, 0, new Uint32Array(N)));
+      moms.forEach(b => device.queue.writeBuffer(b, 0, new Uint32Array(2 * N)));
       cur = 0; step = 0;
     },
     // Same capsule brush the app uses: only fills empty cells (eraser clears all)
@@ -65,10 +65,11 @@ export async function createHarness() {
         cur = 1 - cur; step++;
       }
     },
-    // The grid, or with mom = true the plant momentum buffer (see momOf)
+    // The grid, or with mom = true the plant buffer: per cell [momentum (see momOf), root distance]
     async read(mom = false) {
-      const e = device.createCommandEncoder(); e.copyBufferToBuffer((mom ? moms : grids)[cur], 0, rb, 0, N * 4); device.queue.submit([e.finish()]);
-      await rb.mapAsync(GPUMapMode.READ); const a = new Uint32Array(rb.getMappedRange()).slice(); rb.unmap(); return a;
+      const n = mom ? N * 8 : N * 4;
+      const e = device.createCommandEncoder(); e.copyBufferToBuffer((mom ? moms : grids)[cur], 0, rb, 0, n); device.queue.submit([e.finish()]);
+      await rb.mapAsync(GPUMapMode.READ, 0, n); const a = new Uint32Array(rb.getMappedRange(0, n)).slice(); rb.unmap(); return a;
     },
     async snapshot(statsFn = stats) {
       const a = await this.read();

@@ -136,8 +136,8 @@ async function main() {
     device.createBuffer({ size: N * 4, usage: gridUsage }),
     device.createBuffer({ size: N * 4, usage: gridUsage }),
   ];
-  // Plant momentum, ping-ponged alongside the grids
-  const moms = [0, 1].map(() => device.createBuffer({ size: N * 4, usage: gridUsage }));
+  // Plant state beside the grids, ping-ponged with them: per cell momentum and root distance
+  const moms = [0, 1].map(() => device.createBuffer({ size: N * 8, usage: gridUsage }));
   const params = new Uint32Array([GRID_W, GRID_H, 0, 0, 0, 0, 0, 0]); // w,h,phase,frame,pad...
   const paramBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   // Brush uniform: a.xy, b.xy, r (f32) | cell_type, density, seed (u32)
@@ -152,7 +152,7 @@ async function main() {
 
   const fillGrids = data => {
     grids.forEach(g => device.queue.writeBuffer(g, 0, data));
-    moms.forEach(m => device.queue.writeBuffer(m, 0, new Uint32Array(N)));
+    moms.forEach(m => device.queue.writeBuffer(m, 0, new Uint32Array(2 * N)));
   };
   fillGrids(testPattern());
   dbg('Test pattern ready — you should see sand, water, stone, seeds');

@@ -35,7 +35,7 @@ This starts the server plus a Cloudflare quick tunnel and prints an `https://…
 
 ## Plant model
 
-Plants run on two quantities, energy and momentum; larger behavior (flow toward open space, bottlenecks filling up) is meant to emerge from them rather than from special rules. Each step runs consume → transfer → bloom → decay → damp.
+Plant energy runs on two quantities, energy and momentum; larger behavior (flow toward open space, bottlenecks filling up) is meant to emerge from them rather than from special rules. Separately, each cell tracks its root distance, which decides where the plant grows. Each step runs consume → transfer → root distance → bloom → decay → damp.
 
 | Mechanic | What it does | Parameters |
 |---|---|---|
@@ -43,7 +43,8 @@ Plants run on two quantities, energy and momentum; larger behavior (flow toward 
 | Momentum | A vector in a second buffer, \|p\| ≤ E. \|p\| is the moving part of the energy, the rest is at rest. \|p\| counts the axis part plus √2 × the diagonal part. | none |
 | Consumption | A cell that isn't full drinks a neighboring water. The new energy is all moving, away from the water, turned by the noise map. | `WATER_GAIN`, `NOISE_TURN`, `PLANT_CAP` |
 | Transfer | The moving energy splits between the two nearest of the 8 directions and moves one cell, carrying its momentum; arrivals add up, so head-on ones cancel into rest. Diagonals take 1 phase in 4 to come around, axes 2, so axis moves are taken with chance 1/√2 to keep pace. A full destination keeps the energy at the origin but takes the momentum; whatever exceeds its own energy reflects back. Air (or anything solid) reflects with moderate loss, water with small loss. | `PLANT_CAP`, `AIR_LOSS`, `WATER_LOSS` |
-| Bloom | A cell with high energy and little moving grows into an orthogonal neighbor of open air, or, less often and only fuller, water (replacing it). The new cell gets half the energy, at rest. | `BLOOM_E`, `BLOOM_MOVING`, `BLOOM_WATER_E`, `BLOOM_WATER_ODDS` |
+| Root distance | How far a cell is from where the plant last drank, measured through the plant. Drinking (or sprouting) sets it to 0; otherwise a cell takes the shortest route its plant neighbors offer, +1 per step (+1.5 diagonally). Unconfirmed distances creep up, so a cut-off branch drifts to the cap. | `DIST_CREEP_ODDS` |
+| Bloom | A tip (no plant neighbor farther from the roots) with high energy and little moving grows into an orthogonal neighbor of open air, or, less often and only fuller, water (replacing it). Near the roots it rarely does; the chance rises to certain at `BLOOM_DIST` cells out. The new cell gets half the energy, at rest. | `BLOOM_E`, `BLOOM_MOVING`, `BLOOM_DIST`, `BLOOM_NEAR_ODDS`, `BLOOM_TIP`, `BLOOM_WATER_E`, `BLOOM_WATER_ODDS` |
 | Decay | Energy slowly burns, sometimes breathed out as steam; a cell that runs empty dies, sometimes leaving a seed. | `METAB_ODDS`, `TRANSPIRE_ODDS`, `SEED_DROP_ODDS` |
 | Damp | Every step a little momentum settles into rest. | `DAMP` |
 | Germination | A seed touching water becomes a plant cell. | `GERM_E`, `GERM_ODDS` |
@@ -67,7 +68,7 @@ Open through the server, e.g. http://localhost:8000/dev/garden.html. `dev/harnes
 
 ## Cell encoding
 
-One `u32` per cell: `type | data << 8 | variant << 16`. `data` is per-type (fire/smoke/ember lifetime, plant energy). `variant` bits 0-1 pick a color; plants keep their energy as 14 bits (`data` plus variant bits 2-7, in `ENERGY_RES` fine units). Plant momentum lives in a parallel buffer, one `u32` per cell holding signed 16-bit x and y.
+One `u32` per cell: `type | data << 8 | variant << 16`. `data` is per-type (fire/smoke/ember lifetime, plant energy). `variant` bits 0-1 pick a color; plants keep their energy as 14 bits (`data` plus variant bits 2-7, in `ENERGY_RES` fine units). Plant momentum and root distance live in a parallel buffer, two `u32`s per cell: signed 16-bit momentum x and y, then the distance (in half cells, capped at 255).
 
 ## Adding a particle type
 

@@ -17,8 +17,8 @@ ${commonWGSL}
 @group(0) @binding(1) var<storage,read_write> go: array<u32>;
 @group(0) @binding(2) var<uniform> p: Params;
 // Plant momentum, ping-ponged like the grid (see unpack_mom); zero for other cells
-@group(0) @binding(3) var<storage,read> mi: array<u32>;
-@group(0) @binding(4) var<storage,read_write> mo: array<u32>;
+@group(0) @binding(3) var<storage,read> mi: array<vec2u>;
+@group(0) @binding(4) var<storage,read_write> mo: array<vec2u>;
 
 alias Cells = array<u32, 4>;
 
@@ -265,9 +265,12 @@ fn tick_seed(cin: Cells, i:u32, b: Block) -> Cells {
 //   |p| is measured on the 8 directions: the axis part plus sqrt2 times the
 //   diagonal part (see speed8), so a packet moving diagonally carries its energy
 //   split evenly over x and y.
-//   Tick order: consume (plant_consume) -> transfer (plant_flow) -> bloom ->
-//   decay -> damp (tick_plant).
+//   Root distance: how far each cell is from where the plant last drank,
+//   measured through the plant (see plant_dist). Bloom favors far cells.
+//   Tick order: consume (plant_consume) -> transfer (plant_flow) -> root
+//   distance (plant_dist) -> bloom -> decay -> damp (tick_plant).
 alias Moms = array<vec2i, 4>;
+alias Dists = array<u32, 4>;
 
 const RT2: f32 = 1.41421356;
 
@@ -296,7 +299,7 @@ fn slot_dir(i:u32) -> vec2i { return vec2i(select(-1, 1, (i & 1u) == 0u), select
 
 // Consumption: a plant cell that isn't full drinks a neighboring water. The new
 // energy is all moving, away from the water, turned by the noise map.
-fn plant_consume(c: ptr<function, Cells>, m: ptr<function, Moms>, b: Block) {
+fn plant_consume(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, Dists>, b: Block) {
   let start = roll(b, 0u, 30u) & 3u;
   for (var k = 0u; k < 4u; k = k + 1u) {
     let i = (start + k) & 3u;
@@ -308,14 +311,37 @@ fn plant_consume(c: ptr<function, Cells>, m: ptr<function, Moms>, b: Block) {
     let away = vec2f(f32(i & 1u) - f32(j & 1u), f32(i >> 1u) - f32(j >> 1u));
     let n = growth_noise(cell_x(b.bx, i), cell_y(b.by, i));
     let a = atan2(away.y, away.x) + (n - 0.5) * 2.0 * f32(NOISE_TURN) * 0.0174533;
-    let d = vec2f(cos(a), sin(a));
-    let ad = abs(d);
+    let u = vec2f(cos(a), sin(a));
+    let ad = abs(u);
     let g = f32(WATER_GAIN * ENERGY_RES) / (max(ad.x, ad.y) + (RT2 - 1.0) * min(ad.x, ad.y));
     let ne = energy + WATER_GAIN * ENERGY_RES;
-    (*m)[i] = clamp_mom((*m)[i] + vec2i(round(d * g)), ne);
+    (*m)[i] = clamp_mom((*m)[i] + vec2i(round(u * g)), ne);
     (*c)[i] = mp(ne, gv((*c)[i]));
     (*c)[j] = 0u;
+    (*d)[i] = 0u;
   }
+}
+
+// Root distance, in half cells (an orthogonal step is 2, a diagonal 3), capped
+// at DIST_CAP. Drinking sets a cell's distance to 0; every cell otherwise takes
+// the shortest route offered by its plant neighbors in this block. A distance
+// also creeps up now and then unless a neighbor keeps confirming it, so a
+// branch cut off from its roots drifts up to the cap.
+const DIST_CAP: u32 = 255u;
+fn plant_dist(c: Cells, d: ptr<function, Dists>, b: Block) {
+  var nd: Dists;
+  for (var i = 0u; i < 4u; i = i + 1u) {
+    nd[i] = DIST_CAP;
+    if (gt(c[i]) != PLANT) { continue; }
+    var v = (*d)[i];
+    if ((roll(b, i, 51u) % DIST_CREEP_ODDS) == 0u) { v = min(v + 1u, DIST_CAP); }
+    for (var j = 0u; j < 4u; j = j + 1u) {
+      if (j == i || gt(c[j]) != PLANT) { continue; }
+      v = min(v, (*d)[j] + select(2u, 3u, (i ^ j) == 3u));
+    }
+    nd[i] = v;
+  }
+  *d = nd;
 }
 
 // Bounce off something that isn't plant: the momentum into it flips, with loss
@@ -416,15 +442,22 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, b: Block) {
   }
 }
 
-fn tick_plant(cin: Cells, m: ptr<function, Moms>, i:u32, b: Block) -> Cells {
+fn tick_plant(cin: Cells, m: ptr<function, Moms>, d: ptr<function, Dists>, i:u32, b: Block) -> Cells {
   var c = cin;
   var energy = pe(c[i]);
   let color = gv(c[i]) & 3u;
   let mom = (*m)[i];
 
-  // Bloom: high energy, low momentum. Grows into an orthogonal neighbor of
-  // open air, or, less often and only fuller, of water (replacing it)
-  if (energy >= BLOOM_E * ENERGY_RES && speed8(mom) * 100u <= energy * BLOOM_MOVING) {
+  // Bloom: high energy, low momentum, and more likely the farther from the
+  // roots (certain at BLOOM_DIST cells, 1 in BLOOM_NEAR_ODDS at the roots).
+  // Grows into an orthogonal neighbor of open air, or, less often and only
+  // fuller, of water (replacing it)
+  var far = max((*d)[i] * BLOOM_NEAR_ODDS, 2u * BLOOM_DIST) > roll(b, i, 52u) % (2u * BLOOM_DIST * BLOOM_NEAR_ODDS);
+  // With BLOOM_TIP, only a tip blooms: no plant neighbor in the block is farther out
+  for (var j = 0u; j < 4u; j = j + 1u) {
+    if (BLOOM_TIP == 1u && j != i && gt(c[j]) == PLANT && (*d)[j] > (*d)[i]) { far = false; }
+  }
+  if (far && energy >= BLOOM_E * ENERGY_RES && speed8(mom) * 100u <= energy * BLOOM_MOVING) {
     let r = roll(b, i, 47u) & 1u;
     for (var k = 0u; k < 2u; k = k + 1u) {
       let j = i ^ (1u + ((r + k) & 1u));
@@ -436,6 +469,7 @@ fn tick_plant(cin: Cells, m: ptr<function, Moms>, i:u32, b: Block) -> Cells {
         energy = energy - half;
         c[j] = mp(half, noise_variant(cell_x(b.bx, j), cell_y(b.by, j)));
         (*m)[j] = vec2i(0, 0);
+        (*d)[j] = min((*d)[i] + 2u, DIST_CAP);
         break;
       }
     }
@@ -582,14 +616,19 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
   // Plants never move, so a plant's momentum stays in its slot
   var m: Moms;
+  var dist: Dists;
   for (var k = 0u; k < 4u; k = k + 1u) {
-    m[k] = vec2i(0, 0);
-    if (gt(c[k]) == PLANT) { m[k] = unpack_mom(mi[idx(bx + (k & 1u), by + (k >> 1u))]); }
+    m[k] = vec2i(0, 0); dist[k] = DIST_CAP;
+    if (gt(c[k]) == PLANT) {
+      let ps = mi[idx(bx + (k & 1u), by + (k >> 1u))];
+      m[k] = unpack_mom(ps.x); dist[k] = ps.y;
+    }
   }
 
   c = movement(c, b.rng);
-  plant_consume(&c, &m, b);
+  plant_consume(&c, &m, &dist, b);
   plant_flow(&c, &m, b);
+  plant_dist(c, &dist, b);
 
   // Visit cells starting from a random slot so no position always acts first
   let start = hh(b.rng ^ 0x5bd1e995u) & 3u;
@@ -599,14 +638,14 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (t == FIRE)       { c = tick_fire(c, i, b); }
     else if (t == SMOKE) { c = tick_smoke(c, i); }
     else if (t == STEAM) { c = tick_steam(c, i, b); }
-    else if (t == SEED)  { c = tick_seed(c, i, b); }
-    else if (t == PLANT) { c = tick_plant(c, &m, i, b); }
+    else if (t == SEED)  { c = tick_seed(c, i, b); dist[i] = 0u; } // a sprout is a root
+    else if (t == PLANT) { c = tick_plant(c, &m, &dist, i, b); }
     else if (t == EMBER) { c = tick_ember(c, i, b); }
   }
 
   c = convection(c, b);
 
   go[idx(x, y)] = c[pos];
-  mo[idx(x, y)] = select(0u, pack_mom(m[pos]), gt(c[pos]) == PLANT);
+  mo[idx(x, y)] = select(vec2u(0u), vec2u(pack_mom(m[pos]), dist[pos]), gt(c[pos]) == PLANT);
 }
 `;
