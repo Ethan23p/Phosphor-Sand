@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>sealed scenario</title></head>
+<body style="background:#111;color:#ccc;margin:8px;font:12px monospace"><pre id="out">running...</pre>
+<script type="module">
+import { createHarness, blankGrid, fill, T, makeCell, makePlant, plantE, W } from './harness.js';
+// Fully encased: everything is stone except a sealed reservoir and the far chamber.
+// The reservoir drains through a one-cell neck onto a single root, so the source can't
+// drink faster than the one-cell tunnel can carry. The stem runs along the floor to the
+// far chamber, the only open air.
+const h = await createHarness();
+const g = blankGrid().fill(makeCell(T.STONE, 0, 0));
+fill(g, 10, 70, 20, 130, makeCell(T.WATER, 0, 0));    // reservoir
+fill(g, 40, 41, 130, 139, makeCell(T.WATER, 0, 0));   // one-cell neck down to the root
+fill(g, 190, 250, 20, 140, 0);                        // far chamber (the only air)
+const put = (x, y) => { g[y * W + x] = makePlant(30); };
+for (let x = 40; x <= 196; x++) put(x, 139);          // root under the neck, then the tunnel; the end pokes into the far chamber
+h.load(g);
+const refill = null;
+const CAP = (await import('/src/config.js')).TUNING.PLANT_CAP;
+const P = [['root',40,139],['tun0',45,139],['tun10',60,139],['tun25',100,139],['tun50',130,139],['tun75',160,139],['tunEnd',189,139],['tip',196,139]];
+const rows = ['  t  ' + P.map(p => p[0].padStart(9)).join('') + '   far'];
+const regions = a => {
+  let far = 0, water = 0;
+  a.forEach((c, i) => { const t = c & 255; if (t === T.WATER) water++; if (t === T.PLANT && i % W >= 190) far++; });
+  rows.push(String(Math.round(h.step / 180)).padStart(4) + ' ' + P.map(([, x, y]) => {
+    const c = a[y * W + x]; if ((c & 255) !== T.PLANT) return '       --';
+    return (Math.round(100 * plantE(c) / CAP) + '%/' + ((c >>> 24) & 63)).padStart(9); }).join('') + String(far).padStart(6));
+  return `water ${water} | plant in far chamber ${far}`;
+};
+await h.snapshot(regions);
+for (const s of [1, 10, 30, 60, 120, 200]) {
+  h.run(s * 180 - h.step, refill); await h.snapshot(regions);
+}
+h.finish('sealed tunnel: air only at the far end');
+document.getElementById('out').textContent += '\nfullness%/stillness\n' + rows.join('\n');
+</script></body></html>

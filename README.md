@@ -62,7 +62,7 @@ Rendering: plant brightness tracks fullness: full cells are bright, starved ones
 ## Dev scenarios
 
 `dev/` pages run the real shaders on the GPU with scripted input and render a time-lapse strip plus stats:
-`tunnel` (water at one end, growth at the other), `pool` (seeds in a pool), `garden` (repeated watering, then drought), `elements` (fire/water/steam/embers/sinking).
+`tunnel` (water at one end, growth at the other), `sealed` (a sealed reservoir drains through a one-cell neck onto a root; the only air is the far chamber, where the plant should grow modestly), `pool` (seeds in a pool), `garden` (repeated watering, then drought), `elements` (fire/water/steam/embers/sinking).
 Open through the server, e.g. http://localhost:8000/dev/garden.html. `dev/harness.js` is the shared harness.
 
 ## Cell encoding

@@ -14,13 +14,13 @@ export const T = {
 // "_ODDS: n" means a 1-in-n chance per step. Times assume 3x speed ≈ 180 steps/s.
 export const TUNING = {
   // ── Plant life cycle ──
-  GERM_E: 200,           // a germinated seed starts with much energy
+  GERM_E: 200,           // a germinated seed starts full
   GERM_ODDS: 32,         // seed touching water sprouts after ~0.2s
-  WATER_GAIN: 40,        // energy per water consumed
-  PLANT_CAP: 100,        // "full": a cell this full (and still) can bloom
+  WATER_GAIN: 10,        // energy per water consumed (20 waters fill a cell)
+  PLANT_CAP: 200,        // "full": a cell this full (and still) can bloom
   ENERGY_RES: 64,        // plant energy is stored in fine units, this many per unit
   SPROUT_DELAY: 4,       // "still": steps without energy moving in or out; max ~250
-  METAB_ODDS: 512,       // every cell burns 1 energy per ~2.8s; a full cell lasts ~4.7 min alone
+  METAB_ODDS: 512,       // every cell burns 1 energy per ~2.8s; a full cell lasts ~9.5 min alone
   SEED_DROP_ODDS: 16,    // a starved cell leaves a seed instead of empty space
   TRANSPIRE_ODDS: 64,    // 1 in N energy burned is breathed out as steam
 
