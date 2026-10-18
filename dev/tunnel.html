@@ -3,10 +3,9 @@
 <body style="background:#111;color:#ccc;margin:8px;font:12px monospace"><pre id="out">running...</pre>
 <script type="module">
 import { createHarness, blankGrid, fill, T, makeCell, makePlant, plantE, W, stats } from './harness.js';
-// Energy flows from fuller cells to emptier ones. One end of the plant dips into the
-// pool, a stem runs through a stone tunnel, and its other end sits in the far chamber.
-// Expect: cells in the pool drink, the energy travels along the stem, and the plant
-// grows out of its still end in the far chamber.
+// One end of the plant dips into the pool, a stem runs through a stone tunnel, and
+// its other end sits in the far chamber. Cells in the pool drink; the energy moves
+// away from the water and comes to rest wherever it first meets open air.
 const h = await createHarness();
 const g = blankGrid().fill(makeCell(T.STONE, 0, 0));
 fill(g, 10, 70, 60, 140, 0);                          // left chamber

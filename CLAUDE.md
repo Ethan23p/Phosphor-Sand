@@ -14,7 +14,7 @@ Phosphor Sand is a WebGPU falling-sand toy. It's plain ES modules with no build 
 ## Testing: dev scenarios
 
 There's no unit test suite. Behavior is verified by running the real shaders on the GPU:
-- `dev/*.html` pages (`tunnel`, `sealed`, `pool`, `garden`, `elements`) script an initial grid and brush input with `dev/harness.js`.
+- `dev/*.html` pages (`reservoir`, `tunnel`, `sealed`, `pool`, `garden`, `elements`) script an initial grid and brush input with `dev/harness.js`.
 - Each page renders a time-lapse strip into `#cv` and per-snapshot stats into `#out`.
 - Open one through the server, e.g. `/dev/garden.html`.
 
@@ -40,12 +40,12 @@ Expectations for sim changes:
 - `src/debug.js` `validateWGSL` lints for WGSL reserved words and signed shifts before compiling.
 
 **Margolus 2×2 block CA** (`sim.wgsl.js` `main`):
-- **Blocks:** each step, the grid is split into 2×2 blocks, offset by `phase` (`step & 1`). Each step reads `grids[cur]` and writes `grids[1-cur]`, then the two are swapped.
+- **Blocks:** each step, the grid is split into 2×2 blocks, offset by `phase` (`step & 3`): offsets (0,0), (1,1), (0,1), (1,0). Each step reads `grids[cur]` and writes `grids[1-cur]`, then the two are swapped.
 - **Shared computation:** all four threads of a block compute the whole block identically, and each writes only its own cell. So all randomness must come from the block (`b.rng`, `roll(b, i, salt)`), never from thread IDs.
   - Give each probability check its own unique `salt`, so checks don't share random bits.
 - **Pipeline order:** `movement` (swaps only) → per-type `tick_*` (cells visited from a random start slot) → fire `convection`.
-- **Interaction range:** cells can only interact with cells in the same block. A neighbor in a given direction is only reachable on some phases (`dir_slot` returns `4u` otherwise, meaning "wait").
-  - Diagonal pairs sometimes never share a block, so neighbor rules (like plant energy transfer) should rely on orthogonal neighbors.
+- **Interaction range:** cells can only interact with cells in the same block. A neighbor in a given direction is only reachable on some phases; otherwise the rule waits.
+  - With four phases every neighbor pair shares a block on some phase: an orthogonal pair on 2 of 4, a diagonal pair on 1 of 4.
 - **Conservation is a design goal.**
   - Movement only swaps cells.
   - Reactions should conserve matter, e.g. water ↔ steam. Plants turn water into energy, and transpiration returns part of it as steam.
@@ -53,7 +53,9 @@ Expectations for sim changes:
 
 **Cell encoding:** each cell is one `u32`: `type | data<<8 | variant<<16`.
 - Use the accessors `gt`, `gd`, `gv` and the constructor `mc` from `common.wgsl.js`; `makeCell` is the JS equivalent.
-- Plant energy is 14 bits in fine units (`ENERGY_RES` per tuning unit): `data` holds the low 8, variant bits 2-7 the high 6. Use `pe`/`mp` (JS: `plantE`/`makePlant` in the harness). Bits 24-29 count stillness (time since energy last moved in or out, every 4 steps); `mp` zeroes it. `tick_plant` also gets `c0`, the block before any cell ticked, and makes its transfer decisions from it, so a cell can't hand back energy it received earlier in the same step.
+- Plant energy is 14 bits in fine units (`ENERGY_RES` per tuning unit): `data` holds the low 8, variant bits 2-7 the high 6. Use `pe`/`mp` (JS: `plantE`/`makePlant` in the harness).
+- Plant momentum is a second ping-ponged buffer (sim bindings 3 and 4), signed 16-bit x and y per cell (`unpack_mom`/`pack_mom`; JS `momOf`, `h.read(true)`). `main` loads it into `m` for plant slots and writes zero for every other cell, so a new plant always starts at rest.
+- Plant tick order: `plant_consume` → `plant_flow` (both for the whole block, right after `movement`) → `tick_plant` (bloom, decay, damp).
 
 **Brush** (`brush.wgsl.js`):
 - It's a GPU capsule stamp that edits the current grid in place. It only fills empty cells; the eraser clears all.

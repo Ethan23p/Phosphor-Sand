@@ -20,11 +20,13 @@ export async function createHarness() {
 
   const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
   const grids = [0, 1].map(() => device.createBuffer({ size: N * 4, usage }));
+  const moms = [0, 1].map(() => device.createBuffer({ size: N * 4, usage }));
   const pBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const bBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const rb = device.createBuffer({ size: N * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
   const simBGs = [[0, 1], [1, 0]].map(([a, b]) => device.createBindGroup({ layout: sim.getBindGroupLayout(0), entries: [
-    { binding: 0, resource: { buffer: grids[a] } }, { binding: 1, resource: { buffer: grids[b] } }, { binding: 2, resource: { buffer: pBuf } }] }));
+    { binding: 0, resource: { buffer: grids[a] } }, { binding: 1, resource: { buffer: grids[b] } }, { binding: 2, resource: { buffer: pBuf } },
+    { binding: 3, resource: { buffer: moms[a] } }, { binding: 4, resource: { buffer: moms[b] } }] }));
   const brushBGs = grids.map(g => device.createBindGroup({ layout: brush.getBindGroupLayout(0), entries: [
     { binding: 0, resource: { buffer: g } }, { binding: 1, resource: { buffer: bBuf } }, { binding: 2, resource: { buffer: pBuf } }] }));
 
@@ -41,7 +43,11 @@ export async function createHarness() {
 
   return {
     get step() { return step; },
-    load(g) { grids.forEach(b => device.queue.writeBuffer(b, 0, g)); cur = 0; step = 0; },
+    load(g) {
+      grids.forEach(b => device.queue.writeBuffer(b, 0, g));
+      moms.forEach(b => device.queue.writeBuffer(b, 0, new Uint32Array(N)));
+      cur = 0; step = 0;
+    },
     // Same capsule brush the app uses: only fills empty cells (eraser clears all)
     brush({ x0, y0, x1 = x0, y1 = y0, r = 3, type, density = 256 }) {
       bF.set([x0, y0, x1, y1, r + 0.5]); bU[5] = type; bU[6] = density; bU[7] = seed++;
@@ -53,14 +59,15 @@ export async function createHarness() {
     run(n, onStep) {
       for (let k = 0; k < n; k++) {
         if (onStep) onStep(step);
-        params[2] = step & 1; params[3] = step;
+        params[2] = step & 3; params[3] = step;
         device.queue.writeBuffer(pBuf, 0, params);
         dispatch(sim, simBGs[cur]);
         cur = 1 - cur; step++;
       }
     },
-    async read() {
-      const e = device.createCommandEncoder(); e.copyBufferToBuffer(grids[cur], 0, rb, 0, N * 4); device.queue.submit([e.finish()]);
+    // The grid, or with mom = true the plant momentum buffer (see momOf)
+    async read(mom = false) {
+      const e = device.createCommandEncoder(); e.copyBufferToBuffer((mom ? moms : grids)[cur], 0, rb, 0, N * 4); device.queue.submit([e.finish()]);
       await rb.mapAsync(GPUMapMode.READ); const a = new Uint32Array(rb.getMappedRange()).slice(); rb.unmap(); return a;
     },
     async snapshot(statsFn = stats) {
@@ -96,6 +103,8 @@ export async function createHarness() {
 
 // Plant energy, in units of tuning (stored as 14 bits of fine units: data + variant bits 2-7)
 export function plantE(cell) { return (((cell >> 8) & 255) | (((cell >> 18) & 63) << 8)) / TUNING.ENERGY_RES; }
+// Plant momentum [x, y] in units of tuning, from the momentum buffer
+export function momOf(m) { return [(m << 16 >> 16) / TUNING.ENERGY_RES, (m >> 16) / TUNING.ENERGY_RES]; }
 export function makePlant(e, color = 0) {
   const f = Math.round(e * TUNING.ENERGY_RES);
   return makeCell(T.PLANT, f & 255, (color & 3) | ((f >> 8) << 2));

@@ -24,7 +24,7 @@ const regions = a => {
   a.forEach((c, i) => { const t = c & 255; if (t === T.WATER) water++; if (t === T.PLANT && i % W >= 190) far++; });
   rows.push(String(Math.round(h.step / 180)).padStart(4) + ' ' + P.map(([, x, y]) => {
     const c = a[y * W + x]; if ((c & 255) !== T.PLANT) return '       --';
-    return (Math.round(100 * plantE(c) / CAP) + '%/' + ((c >>> 24) & 63)).padStart(9); }).join('') + String(far).padStart(6));
+    return (Math.round(100 * plantE(c) / CAP) + '%').padStart(9); }).join('') + String(far).padStart(6));
   return `water ${water} | plant in far chamber ${far}`;
 };
 await h.snapshot(regions);
@@ -32,5 +32,5 @@ for (const s of [1, 10, 30, 60, 120, 200]) {
   h.run(s * 180 - h.step, refill); await h.snapshot(regions);
 }
 h.finish('sealed tunnel: air only at the far end');
-document.getElementById('out').textContent += '\nfullness%/stillness\n' + rows.join('\n');
+document.getElementById('out').textContent += '\nfullness%\n' + rows.join('\n');
 </script></body></html>

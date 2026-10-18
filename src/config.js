@@ -16,12 +16,19 @@ export const TUNING = {
   // ── Plant life cycle ──
   GERM_E: 200,           // a germinated seed starts full
   GERM_ODDS: 32,         // seed touching water sprouts after ~0.2s
-  WATER_GAIN: 10,        // energy per water consumed (20 waters fill a cell)
-  PLANT_CAP: 200,        // "full": a cell this full (and still) can bloom
+  WATER_GAIN: 40,        // energy per water consumed (5 waters fill a cell)
+  NOISE_TURN: 45,        // degrees the noise map can turn energy drunk from water
+  AIR_LOSS: 30,          // % of momentum lost bouncing off air (or anything solid)
+  WATER_LOSS: 10,        // % of momentum lost bouncing off water
+  DAMP: 5,               // per mille of momentum that settles into rest each step
+  PLANT_CAP: 200,        // "full": no more drinking, and arriving energy stays put
+  BLOOM_E: 160,          // a cell this full can bloom into open air...
+  BLOOM_MOVING: 10,      // ...if at most this % of its energy is moving
+  BLOOM_WATER_E: 190,    // blooming into water needs more energy...
+  BLOOM_WATER_ODDS: 8,   // ...and is tried 1 in N as often
   ENERGY_RES: 64,        // plant energy is stored in fine units, this many per unit
-  SPROUT_DELAY: 4,       // "still": steps without energy moving in or out; max ~250
   METAB_ODDS: 512,       // every cell burns 1 energy per ~2.8s; a full cell lasts ~9.5 min alone
-  SEED_DROP_ODDS: 16,    // a starved cell leaves a seed instead of empty space
+  SEED_DROP_ODDS: 16,    // a cell that runs empty leaves a seed instead of empty space
   TRANSPIRE_ODDS: 64,    // 1 in N energy burned is breathed out as steam
 
   // ── Fire, water, steam ──

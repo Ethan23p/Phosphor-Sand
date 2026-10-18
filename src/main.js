@@ -28,7 +28,7 @@ async function initGPU() {
 }
 
 // ── Pipelines + bind groups. Ping-pong: index `cur` reads grids[cur], writes grids[1-cur] ──
-async function buildPipelines(device, fmt, grids, paramBuf, brushBuf) {
+async function buildPipelines(device, fmt, grids, moms, paramBuf, brushBuf) {
   validateWGSL(simWGSL, 'sim');
   validateWGSL(renWGSL, 'render');
   validateWGSL(brushWGSL, 'brush');
@@ -45,6 +45,8 @@ async function buildPipelines(device, fmt, grids, paramBuf, brushBuf) {
     { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
     { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
     { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+    { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
   ]});
 
   let simPipe = null;
@@ -85,11 +87,12 @@ async function buildPipelines(device, fmt, grids, paramBuf, brushBuf) {
   }
   setHealth('h-ren', !!renPipe);
 
-  const [gA, gB] = grids;
-  const sBGs = [[gA, gB], [gB, gA]].map(([src, dst]) => device.createBindGroup({ layout: sBGL, entries: [
-    { binding: 0, resource: { buffer: src } },
-    { binding: 1, resource: { buffer: dst } },
+  const sBGs = [0, 1].map(k => device.createBindGroup({ layout: sBGL, entries: [
+    { binding: 0, resource: { buffer: grids[k] } },
+    { binding: 1, resource: { buffer: grids[1 - k] } },
     { binding: 2, resource: { buffer: paramBuf } },
+    { binding: 3, resource: { buffer: moms[k] } },
+    { binding: 4, resource: { buffer: moms[1 - k] } },
   ]}));
   const rBGs = grids.map(g => device.createBindGroup({ layout: rBGL, entries: [
     { binding: 0, resource: { buffer: g } },
@@ -133,19 +136,24 @@ async function main() {
     device.createBuffer({ size: N * 4, usage: gridUsage }),
     device.createBuffer({ size: N * 4, usage: gridUsage }),
   ];
+  // Plant momentum, ping-ponged alongside the grids
+  const moms = [0, 1].map(() => device.createBuffer({ size: N * 4, usage: gridUsage }));
   const params = new Uint32Array([GRID_W, GRID_H, 0, 0, 0, 0, 0, 0]); // w,h,phase,frame,pad...
   const paramBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   // Brush uniform: a.xy, b.xy, r (f32) | cell_type, density, seed (u32)
   const brushData = new ArrayBuffer(32), brushF = new Float32Array(brushData), brushU = new Uint32Array(brushData);
   const brushBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
-  const { simPipe, renPipe, brushPipe, sBGs, rBGs, bBGs } = await buildPipelines(device, fmt, grids, paramBuf, brushBuf);
+  const { simPipe, renPipe, brushPipe, sBGs, rBGs, bBGs } = await buildPipelines(device, fmt, grids, moms, paramBuf, brushBuf);
   if (!renPipe) {
     dbg('FATAL: render pipeline failed — nothing to display', true);
     return;
   }
 
-  const fillGrids = data => grids.forEach(g => device.queue.writeBuffer(g, 0, data));
+  const fillGrids = data => {
+    grids.forEach(g => device.queue.writeBuffer(g, 0, data));
+    moms.forEach(m => device.queue.writeBuffer(m, 0, new Uint32Array(N)));
+  };
   fillGrids(testPattern());
   dbg('Test pattern ready — you should see sand, water, stone, seeds');
 
@@ -163,7 +171,7 @@ async function main() {
   }});
 
   function writeParams() {
-    params[2] = state.step & 1;
+    params[2] = state.step & 3;
     params[3] = state.step;
     device.queue.writeBuffer(paramBuf, 0, params);
   }

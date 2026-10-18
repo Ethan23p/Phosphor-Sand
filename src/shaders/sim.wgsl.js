@@ -16,6 +16,9 @@ ${commonWGSL}
 @group(0) @binding(0) var<storage,read> gi: array<u32>;
 @group(0) @binding(1) var<storage,read_write> go: array<u32>;
 @group(0) @binding(2) var<uniform> p: Params;
+// Plant momentum, ping-ponged like the grid (see unpack_mom); zero for other cells
+@group(0) @binding(3) var<storage,read> mi: array<u32>;
+@group(0) @binding(4) var<storage,read_write> mo: array<u32>;
 
 alias Cells = array<u32, 4>;
 
@@ -255,79 +258,191 @@ fn tick_seed(cin: Cells, i:u32, b: Block) -> Cells {
   return c;
 }
 
-// PLANT: two scalars and three rules.
-//   Fullness: the cell's energy (14 bits, see pe/mp).
-//   Stillness: bits 24-29; zero while energy moves in or out, otherwise counts
-//   up every 4 steps.
-//   Consumption: water next to the plant becomes energy inside it.
-//   Transfer: a fuller cell fills its emptiest less-full neighbor, until that one is full.
-//   Every cell decides from the block as it was at the start of the step (c0), so
-//   energy a cell just received can't be handed straight back within the same step.
-//   Bloom: a full, still cell grows into an empty neighbor, which gets half its energy.
-//   Starve: a cell left empty and still for ~1.4s dies, sometimes leaving a seed.
-//   Metabolism: every cell slowly burns energy, now and then breathing out steam.
-fn plant_still(c:u32) -> u32 { return (c >> 24u) & 63u; }
+// PLANT: energy and momentum.
+//   Energy: a scalar (14 bits, see pe/mp).
+//   Momentum: a vector in the parallel momentum buffer, in the same fine units,
+//   with |p| <= E. |p| is the moving part of the energy; the rest is at rest.
+//   |p| is measured on the 8 directions: the axis part plus sqrt2 times the
+//   diagonal part (see speed8), so a packet moving diagonally carries its energy
+//   split evenly over x and y.
+//   Tick order: consume (plant_consume) -> transfer (plant_flow) -> bloom ->
+//   decay -> damp (tick_plant).
+alias Moms = array<vec2i, 4>;
 
-fn tick_plant(cin: Cells, c0: Cells, i:u32, b: Block) -> Cells {
+const RT2: f32 = 1.41421356;
+
+fn unpack_mom(m:u32) -> vec2i { return vec2i(bitcast<i32>(m << 16u) >> 16u, bitcast<i32>(m) >> 16u); }
+fn pack_mom(v:vec2i) -> u32 { return (bitcast<u32>(v.x) & 0xFFFFu) | (bitcast<u32>(v.y) << 16u); }
+
+// |p|: the axis part plus sqrt2 times the diagonal part
+fn speed8(v:vec2i) -> u32 {
+  let ax = abs(v.x); let ay = abs(v.y);
+  return u32(max(ax, ay)) + u32(round(f32(min(ax, ay)) * (RT2 - 1.0)));
+}
+
+// Moving energy can't exceed the energy the cell holds
+fn clamp_mom(v:vec2i, e:u32) -> vec2i {
+  let n = speed8(v);
+  if (n <= e) { return v; }
+  if (e == 0u) { return vec2i(0, 0); }
+  var r = vec2i(vec2f(v) * (f32(e) / f32(n)));
+  if (speed8(r) > e) { r = r - vec2i(sign(r.x), sign(r.y)); }
+  return r;
+}
+
+// Direction from slot i toward its in-block neighbors: x toward i^1, y toward i^2
+// (and both toward the diagonal i^3)
+fn slot_dir(i:u32) -> vec2i { return vec2i(select(-1, 1, (i & 1u) == 0u), select(-1, 1, (i & 2u) == 0u)); }
+
+// Consumption: a plant cell that isn't full drinks a neighboring water. The new
+// energy is all moving, away from the water, turned by the noise map.
+fn plant_consume(c: ptr<function, Cells>, m: ptr<function, Moms>, b: Block) {
+  let start = roll(b, 0u, 30u) & 3u;
+  for (var k = 0u; k < 4u; k = k + 1u) {
+    let i = (start + k) & 3u;
+    if (gt((*c)[i]) != PLANT) { continue; }
+    let energy = pe((*c)[i]);
+    if (energy + WATER_GAIN * ENERGY_RES > PLANT_CAP * ENERGY_RES) { continue; }
+    let j = find_neighbor(*c, i, WATER, roll(b, i, 31u));
+    if (j == 4u) { continue; }
+    let away = vec2f(f32(i & 1u) - f32(j & 1u), f32(i >> 1u) - f32(j >> 1u));
+    let n = growth_noise(cell_x(b.bx, i), cell_y(b.by, i));
+    let a = atan2(away.y, away.x) + (n - 0.5) * 2.0 * f32(NOISE_TURN) * 0.0174533;
+    let d = vec2f(cos(a), sin(a));
+    let ad = abs(d);
+    let g = f32(WATER_GAIN * ENERGY_RES) / (max(ad.x, ad.y) + (RT2 - 1.0) * min(ad.x, ad.y));
+    let ne = energy + WATER_GAIN * ENERGY_RES;
+    (*m)[i] = clamp_mom((*m)[i] + vec2i(round(d * g)), ne);
+    (*c)[i] = mp(ne, gv((*c)[i]));
+    (*c)[j] = 0u;
+  }
+}
+
+// Bounce off something that isn't plant: the momentum into it flips, with loss
+fn plant_reflect(q:vec2i, fx:bool, fy:bool, loss:u32) -> vec2i {
+  let r = vec2i(select(q.x, -q.x, fx), select(q.y, -q.y, fy));
+  return vec2i(vec2f(r) * (f32(100u - loss) / 100.0));
+}
+
+// Transfer, for the whole block at once. A cell's moving energy splits between
+// the two nearest of the 8 directions: an axis part and a diagonal part. Each
+// part moves when its target is in this block (every other step), carrying its
+// share of p; the energy left behind is at rest. In-block targets are i^1, i^2
+// and i^3.
+fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, b: Block) {
+  var e0: array<u32, 4>;
+  var oe: array<array<u32, 4>, 4>;   // energy sent from i to j
+  var oq: array<array<vec2i, 4>, 4>; // momentum sent from i to j
+  for (var i = 0u; i < 4u; i = i + 1u) {
+    e0[i] = select(0u, pe((*c)[i]), gt((*c)[i]) == PLANT);
+    for (var j = 0u; j < 4u; j = j + 1u) { oe[i][j] = 0u; oq[i][j] = vec2i(0, 0); }
+  }
+
+  for (var i = 0u; i < 4u; i = i + 1u) {
+    if (gt((*c)[i]) != PLANT) { continue; }
+    let v = (*m)[i];
+    if (v.x == 0 && v.y == 0) { continue; }
+    let s = vec2i(sign(v.x), sign(v.y));
+    let ax = abs(v.x); let ay = abs(v.y);
+    let mn = min(ax, ay);
+    let dir = slot_dir(i);
+    var ea = u32(max(ax, ay) - mn);
+    var ed = u32(round(f32(mn) * RT2));
+    let tot = ea + ed;
+    if (tot > e0[i]) { ea = ea * e0[i] / tot; ed = e0[i] - ea; }
+    // axis part, slowed to the diagonals' pace: an axis neighbor shares a block
+    // on 2 phases of 4, a diagonal on 1 but sqrt2 farther away
+    let go_axis = (roll(b, i, 50u) & 1023u) < 724u;
+    if (go_axis && ax > ay && s.x == dir.x) {
+      oe[i][i ^ 1u] += ea; oq[i][i ^ 1u] += vec2i(v.x - s.x * mn, 0);
+    } else if (go_axis && ay > ax && s.y == dir.y) {
+      oe[i][i ^ 2u] += ea; oq[i][i ^ 2u] += vec2i(0, v.y - s.y * mn);
+    }
+    // diagonal part
+    if (mn > 0) {
+      let q = s * mn;
+      if (s.x == dir.x && s.y == dir.y) { oe[i][i ^ 3u] += ed; oq[i][i ^ 3u] += q; }
+    }
+  }
+
+  var inc: array<u32, 4>;
+  for (var j = 0u; j < 4u; j = j + 1u) {
+    inc[j] = 0u;
+    for (var i = 0u; i < 4u; i = i + 1u) { inc[j] += oe[i][j]; }
+  }
+
+  var e1: array<i32, 4>;
+  var m1: Moms;
+  var full: array<bool, 4>;
+  for (var i = 0u; i < 4u; i = i + 1u) {
+    e1[i] = i32(e0[i]); m1[i] = (*m)[i];
+    full[i] = gt((*c)[i]) == PLANT && e0[i] + inc[i] > PLANT_CAP * ENERGY_RES;
+  }
+  for (var i = 0u; i < 4u; i = i + 1u) {
+    for (var j = 0u; j < 4u; j = j + 1u) {
+      let q = oq[i][j];
+      let en = oe[i][j];
+      if (i == j || (q.x == 0 && q.y == 0 && en == 0u)) { continue; }
+      let tj = gt((*c)[j]);
+      if (tj != PLANT) {
+        // Air (and anything solid) reflects with moderate loss, water with small
+        let loss = select(AIR_LOSS, WATER_LOSS, tj == WATER);
+        m1[i] += plant_reflect(q, ((i ^ j) & 1u) != 0u, ((i ^ j) & 2u) != 0u, loss) - q;
+      } else if (full[j]) {
+        // Full: the energy stays, the momentum passes on
+        m1[i] -= q; m1[j] += q;
+      } else {
+        e1[i] -= i32(en); e1[j] += i32(en);
+        m1[i] -= q; m1[j] += q;
+      }
+    }
+  }
+  // A full cell pushed past its own energy reflects the excess back to its senders
+  for (var j = 0u; j < 4u; j = j + 1u) {
+    if (!full[j] || inc[j] == 0u) { continue; }
+    let kept = clamp_mom(m1[j], u32(e1[j]));
+    let excess = m1[j] - kept;
+    m1[j] = kept;
+    if (excess.x == 0 && excess.y == 0) { continue; }
+    for (var i = 0u; i < 4u; i = i + 1u) {
+      if (i == j || oe[i][j] == 0u) { continue; }
+      m1[i] -= vec2i(vec2f(excess) * (f32(oe[i][j]) / f32(inc[j])));
+    }
+  }
+  for (var i = 0u; i < 4u; i = i + 1u) {
+    if (gt((*c)[i]) != PLANT) { continue; }
+    (*m)[i] = m1[i];
+    (*c)[i] = mp(u32(e1[i]), gv((*c)[i]));
+  }
+}
+
+fn tick_plant(cin: Cells, m: ptr<function, Moms>, i:u32, b: Block) -> Cells {
   var c = cin;
   var energy = pe(c[i]);
   let color = gv(c[i]) & 3u;
-  var still = plant_still(c[i]);
-  var busy = false;
+  let mom = (*m)[i];
 
-  // Consumption (as long as the energy still fits in the cell's 14 bits)
-  if (energy + WATER_GAIN * ENERGY_RES <= PE_MAX) {
-    let j = find_neighbor(c, i, WATER, roll(b, i, 31u));
-    if (j < 4u) {
-      energy = energy + WATER_GAIN * ENERGY_RES;
-      c[j] = 0u;
-      busy = true;
+  // Bloom: high energy, low momentum. Grows into an orthogonal neighbor of
+  // open air, or, less often and only fuller, of water (replacing it)
+  if (energy >= BLOOM_E * ENERGY_RES && speed8(mom) * 100u <= energy * BLOOM_MOVING) {
+    let r = roll(b, i, 47u) & 1u;
+    for (var k = 0u; k < 2u; k = k + 1u) {
+      let j = i ^ (1u + ((r + k) & 1u));
+      let tj = gt(c[j]);
+      let into_water = tj == WATER && energy >= BLOOM_WATER_E * ENERGY_RES
+                       && (roll(b, i, 48u + k) % BLOOM_WATER_ODDS) == 0u;
+      if (tj == EMPTY || into_water) {
+        let half = energy / 2u;
+        energy = energy - half;
+        c[j] = mp(half, noise_variant(cell_x(b.bx, j), cell_y(b.by, j)));
+        (*m)[j] = vec2i(0, 0);
+        break;
+      }
     }
   }
 
-  // Transfer
-  var dst = 4u;
-  let r = roll(b, i, 33u);
-  for (var k = 0u; k < 4u; k = k + 1u) {
-    let j = (r + k) & 3u;
-    if (j == i || (i ^ j) == 3u || gt(c[j]) != PLANT || gt(c0[j]) != PLANT) { continue; }
-    let ej = pe(c0[j]);
-    if (ej < pe(c0[i]) && ej < PLANT_CAP * ENERGY_RES && (dst == 4u || ej < pe(c0[dst]))) { dst = j; }
-  }
-  if (dst < 4u) {
-    let de = pe(c[dst]);
-    let flow = min(energy, PLANT_CAP * ENERGY_RES - min(de, PLANT_CAP * ENERGY_RES)); // until it's full
-    if (flow > 0u) {
-      energy = energy - flow;
-      c[dst] = mp(de + flow, gv(c[dst]));
-      busy = true;
-    }
-  }
-
-  // Bloom
-  if (!busy && energy >= PLANT_CAP * ENERGY_RES && still * 4u >= SPROUT_DELAY) {
-    let j = find_neighbor(c, i, EMPTY, roll(b, i, 47u));
-    if (j < 4u) {
-      let half = energy / 2u;
-      energy = energy - half;
-      c[j] = mp(half, noise_variant(cell_x(b.bx, j), cell_y(b.by, j)));
-      busy = true;
-    }
-  }
-
-  if (busy) { still = 0u; }
-  else if ((p.frame & 3u) == 0u) { still = min(still + 1u, 63u); }
-
-  // Starve: a cell that has sat empty and still for as long as stillness counts
-  // (~1.4s) dies, sometimes leaving a seed
-  if (energy == 0u && still == 63u) {
-    if ((roll(b, i, 35u) % SEED_DROP_ODDS) == 0u) { c[i] = mc(SEED, 0u, roll(b, i, 36u) & 3u); }
-    else { c[i] = 0u; }
-    return c;
-  }
-
-  // Metabolism: burn one fine unit every ~METAB_ODDS / ENERGY_RES steps (one
-  // whole unit per ~METAB_ODDS), sometimes breathing out steam into open air
+  // Decay: burn one fine unit every ~METAB_ODDS / ENERGY_RES steps (one whole
+  // unit per ~METAB_ODDS), sometimes breathing out steam into open air
   let mr = roll(b, i, 34u);
   if ((mr % max(METAB_ODDS / ENERGY_RES, 1u)) == 0u && energy > 0u) {
     energy = energy - 1u;
@@ -337,7 +452,18 @@ fn tick_plant(cin: Cells, c0: Cells, i:u32, b: Block) -> Cells {
     }
   }
 
-  c[i] = mp(energy, color) | (still << 24u);
+  // An empty cell dies, sometimes leaving a seed
+  if (energy == 0u) {
+    if ((roll(b, i, 35u) % SEED_DROP_ODDS) == 0u) { c[i] = mc(SEED, 0u, roll(b, i, 36u) & 3u); }
+    else { c[i] = 0u; }
+    (*m)[i] = vec2i(0, 0);
+    return c;
+  }
+
+  // Damp: moving energy settles into resting energy
+  let damped = vec2i(vec2f(mom) * (f32(1000u - DAMP) / 1000.0));
+  (*m)[i] = clamp_mom(damped, energy);
+  c[i] = mp(energy, color);
   return c;
 }
 
@@ -420,16 +546,22 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   let y = gid.y;
   if (x >= p.w || y >= p.h) { return; }
 
-  let ph = p.phase & 1u;
-  if (ph == 1u && (x == 0u || y == 0u)) {
+  // Four phases, block offsets (0,0) (1,1) (0,1) (1,0), so every pair of
+  // neighbors, diagonals included, shares a block on some phase
+  let ph = p.phase & 3u;
+  let ox = ph & 1u;
+  let oy = (ph ^ (ph >> 1u)) & 1u;
+  if ((ox == 1u && x == 0u) || (oy == 1u && y == 0u)) {
     go[idx(x, y)] = gi[idx(x, y)];
+    mo[idx(x, y)] = mi[idx(x, y)];
     return;
   }
 
-  let bx = ((x - ph) / 2u) * 2u + ph;
-  let by = ((y - ph) / 2u) * 2u + ph;
+  let bx = ((x - ox) / 2u) * 2u + ox;
+  let by = ((y - oy) / 2u) * 2u + oy;
   if (bx + 1u >= p.w || by + 1u >= p.h) {
     go[idx(x, y)] = gi[idx(x, y)];
+    mo[idx(x, y)] = mi[idx(x, y)];
     return;
   }
 
@@ -448,8 +580,16 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     hh(bx * 31u + by * 65537u + p.frame * 7919u),
   );
 
+  // Plants never move, so a plant's momentum stays in its slot
+  var m: Moms;
+  for (var k = 0u; k < 4u; k = k + 1u) {
+    m[k] = vec2i(0, 0);
+    if (gt(c[k]) == PLANT) { m[k] = unpack_mom(mi[idx(bx + (k & 1u), by + (k >> 1u))]); }
+  }
+
   c = movement(c, b.rng);
-  let c0 = c; // the block before anything ticks, so plants all decide at once
+  plant_consume(&c, &m, b);
+  plant_flow(&c, &m, b);
 
   // Visit cells starting from a random slot so no position always acts first
   let start = hh(b.rng ^ 0x5bd1e995u) & 3u;
@@ -460,12 +600,13 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     else if (t == SMOKE) { c = tick_smoke(c, i); }
     else if (t == STEAM) { c = tick_steam(c, i, b); }
     else if (t == SEED)  { c = tick_seed(c, i, b); }
-    else if (t == PLANT) { c = tick_plant(c, c0, i, b); }
+    else if (t == PLANT) { c = tick_plant(c, &m, i, b); }
     else if (t == EMBER) { c = tick_ember(c, i, b); }
   }
 
   c = convection(c, b);
 
   go[idx(x, y)] = c[pos];
+  mo[idx(x, y)] = select(0u, pack_mom(m[pos]), gt(c[pos]) == PLANT);
 }
 `;
