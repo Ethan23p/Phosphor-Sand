@@ -545,6 +545,7 @@ fn tick_plant(cin: Cells, m: ptr<function, Moms>, d: ptr<function, Dists>, i:u32
   // roots and up to DAMP per mille from BLOOM_DIST cells out
   let reach = f32(min((*d)[i], 2u * BLOOM_DIST)) / f32(2u * BLOOM_DIST);
   let damped = vec2i(vec2f(mom) * (1.0 - f32(DAMP) / 1000.0 * reach));
+
   (*m)[i] = clamp_mom(damped, energy);
   c[i] = mp(energy, color);
   return c;
@@ -642,9 +643,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
   let bx = ((x - ox) / 2u) * 2u + ox;
   let by = ((y - oy) / 2u) * 2u + oy;
-  if (bx + 1u >= p.w || by + 1u >= p.h) {
-    go[idx(x, y)] = gi[idx(x, y)];
-    mo[idx(x, y)] = mi[idx(x, y)];
+  // The grid's edge is a 1px wall of stone (this also covers every cell of a
+  // block that would hang off the grid)
+  if (x == 0u || y == 0u || x + 1u == p.w || y + 1u == p.h) {
+    go[idx(x, y)] = mc(STONE, 0u, (x * 7u + y * 13u) & 3u);
+    mo[idx(x, y)] = vec2u(0u, 0u);
     return;
   }
 

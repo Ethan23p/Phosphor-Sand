@@ -45,6 +45,7 @@ Expectations for sim changes:
 - **Shared computation:** all four threads of a block compute the whole block identically, and each writes only its own cell. So all randomness must come from the block (`b.rng`, `roll(b, i, salt)`), never from thread IDs.
   - Give each probability check its own unique `salt`, so checks don't share random bits.
 - **Pipeline order:** `movement` (swaps only) → per-type `tick_*` (cells visited from a random start slot) → fire `convection`.
+- **Border:** the outermost 1px ring of the grid is always stone (sim `main` rewrites it each step; the brush skips it), which also covers any block that would hang off the grid.
 - **Interaction range:** cells can only interact with cells in the same block. A neighbor in a given direction is only reachable on some phases; otherwise the rule waits.
   - With four phases every neighbor pair shares a block on some phase: an orthogonal pair on 2 of 4, a diagonal pair on 1 of 4.
 - **Conservation is a design goal.**

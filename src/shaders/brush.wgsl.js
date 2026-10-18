@@ -19,6 +19,8 @@ struct Brush { a: vec2f, b: vec2f, r: f32, cell_type: u32, density: u32, seed: u
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
 fn main(@builtin(global_invocation_id) gid: vec3u) {
   if (gid.x >= p.w || gid.y >= p.h) { return; }
+  // the 1px stone border stays (see sim main)
+  if (gid.x == 0u || gid.y == 0u || gid.x + 1u == p.w || gid.y + 1u == p.h) { return; }
 
   let pt = vec2f(f32(gid.x) + 0.5, f32(gid.y) + 0.5);
   let ab = br.b - br.a;
