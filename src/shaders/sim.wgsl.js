@@ -450,10 +450,32 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: Dists, b: Bloc
         let loss = select(u32(round(f32(AIR_LOSS) * reach)), WATER_LOSS, tj == WATER);
         let r = plant_reflect(q, ((i ^ j) & 1u) != 0u, ((i ^ j) & 2u) != 0u, loss);
         m1[i] += turn_mom(r, plant_turn(b, i, 53u + j, NOISE_TURN, SPREAD)) - q;
+      } else if (tj == PLANT && full[j] && CRADLE == 1u) {
+        // A full plant cell takes the momentum but not the energy, like a
+        // Newton's cradle: the packet stops here and the full cell's own
+        // energy moves on along it
+        m1[i] -= q; m1[j] += q;
       } else if (tj != PLANT || full[j]) {
-        // Stone and the like, or a full plant cell: the energy stays and the
-        // momentum glances off sideways
-        m1[i] += plant_deflect(q, b, i, 57u + j) - q;
+        // Stone and the like (or a full plant cell, without CRADLE): the
+        // momentum glances off sideways, and if the cell it now points at is
+        // in this block and is a plant with room, the packet goes on there in
+        // the same step
+        let t = plant_deflect(q, b, i, 57u + j);
+        var k = 4u;
+        var best = 0.7071 * length(vec2f(t)); // within 45 degrees
+        for (var s2 = 1u; s2 < 4u; s2 = s2 + 1u) {
+          let kk = i ^ s2;
+          if (kk == j) { continue; }
+          let dv = vec2f(f32(kk & 1u) - f32(i & 1u), f32(kk >> 1u) - f32(i >> 1u));
+          let dt = dot(normalize(dv), vec2f(t));
+          if (dt > best) { best = dt; k = kk; }
+        }
+        if (k < 4u && gt((*c)[k]) == PLANT && e1[k] + i32(en) <= i32(PLANT_CAP * ENERGY_RES)) {
+          e1[i] -= i32(en); e1[k] += i32(en);
+          m1[i] -= q; m1[k] += t;
+        } else {
+          m1[i] += t - q;
+        }
       } else {
         e1[i] -= i32(en); e1[j] += i32(en);
         m1[i] -= q; m1[j] += q;
@@ -462,7 +484,7 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: Dists, b: Bloc
   }
   for (var i = 0u; i < 4u; i = i + 1u) {
     if (gt((*c)[i]) != PLANT) { continue; }
-    (*m)[i] = m1[i];
+    (*m)[i] = clamp_mom(m1[i], u32(e1[i]));
     (*c)[i] = mp(u32(e1[i]), gv((*c)[i]));
   }
 }

@@ -8,14 +8,16 @@ export { T, makeCell };
 export const W = GRID_W, H = GRID_H, N = W * H;
 const NAMES = Object.fromEntries(Object.entries(T).map(([k, v]) => [v, k]));
 
-export async function createHarness() {
+// opts.wgsl swaps in a modified sim shader and opts.extra adds bind group
+// entries to it (for temporary instrumentation)
+export async function createHarness({ wgsl = simWGSL, extra = [] } = {}) {
   const device = await (await navigator.gpu.requestAdapter()).requestDevice();
   const module = async code => {
     const m = device.createShaderModule({ code });
     for (const msg of (await m.getCompilationInfo()).messages) console.log(`${msg.type} L${msg.lineNum}: ${msg.message}`);
     return m;
   };
-  const sim = device.createComputePipeline({ layout: 'auto', compute: { module: await module(simWGSL), entryPoint: 'main' } });
+  const sim = device.createComputePipeline({ layout: 'auto', compute: { module: await module(wgsl), entryPoint: 'main' } });
   const brush = device.createComputePipeline({ layout: 'auto', compute: { module: await module(brushWGSL), entryPoint: 'main' } });
 
   const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
@@ -26,7 +28,7 @@ export async function createHarness() {
   const rb = device.createBuffer({ size: N * 8, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
   const simBGs = [[0, 1], [1, 0]].map(([a, b]) => device.createBindGroup({ layout: sim.getBindGroupLayout(0), entries: [
     { binding: 0, resource: { buffer: grids[a] } }, { binding: 1, resource: { buffer: grids[b] } }, { binding: 2, resource: { buffer: pBuf } },
-    { binding: 3, resource: { buffer: moms[a] } }, { binding: 4, resource: { buffer: moms[b] } }] }));
+    { binding: 3, resource: { buffer: moms[a] } }, { binding: 4, resource: { buffer: moms[b] } }, ...extra] }));
   const brushBGs = grids.map(g => device.createBindGroup({ layout: brush.getBindGroupLayout(0), entries: [
     { binding: 0, resource: { buffer: g } }, { binding: 1, resource: { buffer: bBuf } }, { binding: 2, resource: { buffer: pBuf } }] }));
 
