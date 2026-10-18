@@ -17,7 +17,9 @@ export const TUNING = {
   GERM_E: 40,            // a germinated seed starts full
   GERM_ODDS: 32,         // seed touching water sprouts after ~0.2s
   WATER_GAIN: 10,        // energy per water consumed (4 waters fill a cell)
-  NOISE_TURN: 45,        // degrees the noise map turns energy as it's drunk or bounces
+  DRINK_TURN: 5,         // degrees the noise map turns energy as it's drunk (away from the water)
+  DRINK_SPREAD: 5,       // plus up to this many degrees of random turn either way
+  NOISE_TURN: 45,        // degrees the noise map turns energy bouncing off air or water
   SPREAD: 30,            // plus up to this many degrees of random turn either way
   AIR_LOSS: 60,          // % of momentum lost bouncing off open air at BLOOM_DIST cells out (none at the roots)
   WATER_LOSS: 10,        // % of momentum lost bouncing off water

@@ -297,13 +297,13 @@ fn clamp_mom(v:vec2i, e:u32) -> vec2i {
 // (and both toward the diagonal i^3)
 fn slot_dir(i:u32) -> vec2i { return vec2i(select(-1, 1, (i & 1u) == 0u), select(-1, 1, (i & 2u) == 0u)); }
 
-// How far energy turns when it's drunk or bounces, in radians: the noise map
-// turns it up to NOISE_TURN degrees (the same way every time at a given spot),
-// plus a random spread of up to SPREAD degrees either way
-fn plant_turn(b: Block, i:u32, salt:u32) -> f32 {
+// How far energy turns, in radians: the noise map turns it up to turn degrees
+// (the same way every time at a given spot), plus a random spread of up to
+// spread degrees either way
+fn plant_turn(b: Block, i:u32, salt:u32, turn:u32, spread:u32) -> f32 {
   let n = growth_noise(cell_x(b.bx, i), cell_y(b.by, i));
   let r = f32(roll(b, i, salt) & 0xFFFFu) / 65535.0;
-  return ((n - 0.5) * 2.0 * f32(NOISE_TURN) + (r - 0.5) * 2.0 * f32(SPREAD)) * 0.0174533;
+  return ((n - 0.5) * 2.0 * f32(turn) + (r - 0.5) * 2.0 * f32(spread)) * 0.0174533;
 }
 
 // Rotate a momentum, keeping its moving energy (speed8)
@@ -328,7 +328,7 @@ fn plant_consume(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<functio
     let j = find_neighbor(*c, i, WATER, roll(b, i, 31u));
     if (j == 4u) { continue; }
     let away = vec2f(f32(i & 1u) - f32(j & 1u), f32(i >> 1u) - f32(j >> 1u));
-    let a = atan2(away.y, away.x) + plant_turn(b, i, 32u);
+    let a = atan2(away.y, away.x) + plant_turn(b, i, 32u, DRINK_TURN, DRINK_SPREAD);
     let u = vec2f(cos(a), sin(a));
     let ad = abs(u);
     let g = f32(WATER_GAIN * ENERGY_RES) / (max(ad.x, ad.y) + (RT2 - 1.0) * min(ad.x, ad.y));
@@ -449,7 +449,7 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: Dists, b: Bloc
         let reach = f32(min(d[i], 2u * BLOOM_DIST)) / f32(2u * BLOOM_DIST);
         let loss = select(u32(round(f32(AIR_LOSS) * reach)), WATER_LOSS, tj == WATER);
         let r = plant_reflect(q, ((i ^ j) & 1u) != 0u, ((i ^ j) & 2u) != 0u, loss);
-        m1[i] += turn_mom(r, plant_turn(b, i, 53u + j)) - q;
+        m1[i] += turn_mom(r, plant_turn(b, i, 53u + j, NOISE_TURN, SPREAD)) - q;
       } else if (tj != PLANT || full[j]) {
         // Stone and the like, or a full plant cell: the energy stays and the
         // momentum glances off sideways
