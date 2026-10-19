@@ -4,7 +4,8 @@
 <script type="module">
 import { createHarness, blankGrid, fill, T, makeCell, W, H, plantE } from './harness.js';
 // A big curved stone basin of water drains through a 3px hole into a long fall
-// onto seeds on a stone plateau, with a stone stub hanging beside the hole. Does
+// onto seeds on a stone plateau (through a straw for its last stretch, so it
+// doesn't spray), with a stone stub hanging beside the hole. Does
 // the plant flourish where the water lands, or climb the stream and eat the
 // waterfall? Water keeps being drawn into the basin, so the fall keeps going,
 // like a player keeping it topped up. What the plant doesn't drink runs off the
@@ -25,6 +26,8 @@ fill(g, HOLE[0], HOLE[1], 0, 200, 0);                          // the hole (and 
 fill(g, HOLE[0], HOLE[1], LEVEL, yb(HOLE[0]) - 10, WATER);     // refill the basin above the hole
 fill(g, STUB[0], STUB[1], yb(STUB[0]), STUB[2], STONE);         // stub hanging beside it
 const PLATEAU = [56, 116, 236];                                  // x0, x1, top
+fill(g, HOLE[0] - 1, HOLE[1] + 1, yb(HOLE[0]) + THICK, 200, STONE); // a straw under the hole, so the fall
+fill(g, HOLE[0], HOLE[1], yb(HOLE[0]) + THICK, 200, 0);              //   lands narrow instead of spraying
 fill(g, PLATEAU[0], PLATEAU[1], PLATEAU[2], H, STONE);
 h.load(g);
 h.brush({ x0: 70, y0: PLATEAU[2] - 2, x1: 100, y1: PLATEAU[2] - 2, r: 1, type: T.SEED, density: 80 });

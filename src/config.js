@@ -16,7 +16,7 @@ export const TUNING = {
   // ── Plant life cycle ──
   GERM_E: 25,            // a germinated seed starts this full (with room to drink)
   GERM_ODDS: 32,         // seed touching water sprouts after ~0.2s
-  WATER_GAIN: 10,        // energy per water consumed (4 waters fill a cell)
+  WATER_GAIN: 6,         // energy per water consumed (about 7 waters fill a cell)
   DRINK_TURN: 5,         // degrees the noise map turns energy as it's drunk (away from the water)
   DRINK_SPREAD: 5,       // plus up to this many degrees of random turn either way
   NOISE_TURN: 45,        // degrees the noise map turns energy bouncing off air or water

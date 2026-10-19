@@ -23,6 +23,9 @@ for (const ox of [0, 129]) {
   fill(g, ox + 10, ox + 118, 30, 101, STONE);                // bowl
   fill(g, ox + 16, ox + 112, 30, 95, WATER);                 // the water in it
   fill(g, ox + HOLE, ox + HOLE + 1, 95, 101, 0);             // 1px hole in the bottom
+  const end = ox ? 196 : 190;                                 // a straw down to the seeds (or the cup's roof gap),
+  fill(g, ox + HOLE - 1, ox + HOLE + 2, 101, end, STONE);     //   so the stream lands narrow instead of spraying
+  fill(g, ox + HOLE, ox + HOLE + 1, 101, end, 0);
 }
 const N0 = 129;
 const [cx0, cx1, cy0, cy1] = CUP.map((v, k) => k < 2 ? v + N0 : v);

@@ -5,6 +5,7 @@
 import { createHarness, blankGrid, fill, T, makeCell, W, H, plantE, makePlant } from './harness.js';
 // A thick stone basin of water drains through a 1px channel down a long funnel,
 // a thin trickle onto one end of an established plant on a stone shelf. The
+// funnel ends in a straw that carries the drip right down to the plant. The
 // shelf slopes gently down to the left, so runoff flows away from the plant and
 // off the shelf's edge onto the floor, where it keeps being erased (like a
 // player clearing it): the plant is watered, not flooded. A sand pile sits at
@@ -13,7 +14,7 @@ import { createHarness, blankGrid, fill, T, makeCell, W, H, plantE, makePlant } 
 const h = await createHarness();
 const g = blankGrid();
 const STONE = makeCell(T.STONE, 0, 0), WATER = makeCell(T.WATER, 0, 0), SAND = makeCell(T.SAND, 0, 0);
-const CX = 155, NECK = 175, SAND_X = 215, SHELF_X = 110;
+const CX = 155, NECK = 175, STRAW = 200, SAND_X = 215, SHELF_X = 110;
 const top = x => Math.round(92 + 22 * Math.sin(Math.PI * (x - 10) / 200));  // basin floor, sagging in the middle
 const ground = x => H - 30 + Math.round((W - 2 - x) / 12);                   // shelf top
 for (let x = 1; x < W - 1; x++) {
@@ -26,6 +27,7 @@ for (let x = 1; x < W - 1; x++) {
   if (x >= SAND_X) fill(g, x, x + 1, ground(x) - Math.round((x - SAND_X) * 0.8), ground(x), SAND);
 }
 fill(g, CX, CX + 1, top(CX), NECK, 0);                                   // the channel
+fill(g, CX - 1, CX + 2, NECK, STRAW, STONE); fill(g, CX, CX + 1, NECK, STRAW, 0); // a 1px straw carrying it on down, so the drip lands narrow
 // an established plant under the neck: a big rough clump stretching right from
 // where the drip lands, half full
 const mom = new Uint32Array(2 * W * H);
