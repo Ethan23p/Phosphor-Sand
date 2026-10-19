@@ -16,7 +16,7 @@ Phosphor Sand is a WebGPU falling-sand toy. It's plain ES modules with no build 
 There's no unit test suite. Behavior is verified by running the real shaders on the GPU:
 - `dev/*.html` pages (`flow`, `dist`, `waterfall`, `trickle`, `reservoir`, `tunnel`, `sealed`, `pool`, `garden`, `elements`) script an initial grid and brush input with `dev/harness.js`.
 - `createHarness({ wgsl, extra })` runs a modified sim shader with extra bind group entries. Use it for temporary instrumentation, e.g. atomic counters at binding 5, and don't commit those probe pages.
-- Each page renders a time-lapse strip into `#cv` and per-snapshot stats into `#out`. `h.snapshot(stats, { mom: true })` also keeps the plant buffer (passed to `stats` as its second argument) and adds a row showing moving energy; `h.load(g, mom)` can start from a given plant buffer (e.g. preset root distances).
+- Each page renders a time-lapse strip into `#cv` and per-snapshot stats into `#out`. `h.snapshot(stats, { mom: true })` also keeps the plant buffer (passed to `stats` as its second argument) and adds rows showing moving energy, root distance and thickness (green: grown, orange: seedling); `h.load(g, mom)` can start from a given plant buffer (e.g. preset root distances).
 - Open one through the server, e.g. `/dev/garden.html`.
 
 To run one headlessly:
@@ -58,8 +58,8 @@ Expectations for sim changes:
 **Cell encoding:** each cell is one `u32`: `type | data<<8 | variant<<16`.
 - Use the accessors `gt`, `gd`, `gv` and the constructor `mc` from `common.wgsl.js`; `makeCell` is the JS equivalent.
 - Plant energy is 14 bits in fine units (`ENERGY_RES` per tuning unit): `data` holds the low 8, variant bits 2-7 the high 6. Use `pe`/`mp` (JS: `plantE`/`makePlant` in the harness).
-- Plant momentum and root distance share a second ping-ponged buffer (sim bindings 3 and 4, `vec2u` per cell): `.x` is signed 16-bit momentum x and y (`unpack_mom`/`pack_mom`; JS `momOf`), `.y` the root distance in half cells. `h.read(true)` returns them interleaved. `main` loads them into `m`/`dist` for plant slots and writes zero for every other cell, so a new plant always starts at rest; a sprouting seed gets distance 0, a bloomed cell its parent's + 2.
-- Plant tick order: `plant_consume` → `plant_flow` (transfer and bloom) → `plant_dist` (all for the whole block, right after `movement`) → `tick_plant` (decay, damp).
+- Plant momentum and root distance share a second ping-ponged buffer (sim bindings 3 and 4, `vec2u` per cell): `.x` is signed 16-bit momentum x and y (`unpack_mom`/`pack_mom`; JS `momOf`), `.y` the root distance in half cells (bits 0-7) and the thickness (bits 8-15 the cell's own, 16-23 the plant's; mask with `& 255` to read distance). `h.read(true)` returns them interleaved. `main` loads them into `m`/`dist` for plant slots and writes zero for every other cell, so a new plant always starts at rest; a sprouting seed gets distance 0, a bloomed cell its parent's + 2 and its plant thickness.
+- Plant tick order: `plant_consume` → `plant_flow` (transfer and bloom) → `plant_dist` → `plant_thick` (all for the whole block, right after `movement`) → `tick_plant` (decay, damp).
 
 **Brush** (`brush.wgsl.js`):
 - It's a GPU capsule stamp that edits the current grid in place. It only fills empty cells; the eraser clears all.

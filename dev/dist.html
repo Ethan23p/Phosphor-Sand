@@ -71,7 +71,7 @@ const stats = (a, m) => {
     if (ty === T.WATER) w++;
     if (ty === T.STEAM) st++;
     if (ty !== T.PLANT) continue;
-    const s = m[2 * i + 1], tr = t[i];
+    const s = m[2 * i + 1] & 255, tr = t[i];
     n++; e += plantE(a[i]); err += Math.abs(s - tr);
     if (s + 6 < tr) low++;
     if (s > tr + 6) high++;

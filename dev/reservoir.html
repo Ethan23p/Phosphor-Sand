@@ -9,23 +9,28 @@ import { createHarness, blankGrid, fill, T, makeCell, W, plantE } from './harnes
 //   right (neck): the seeds sit in a stone cup; water drips in through a gap in
 //   its roof, and the only other way out is a 2-cell slit at the floor, so growth
 //   outside has to be fed through a bottleneck.
+// Each floor stops short of a gap at its sides, and water that reaches a gap
+// drains into a sump that keeps being erased, as does a 1px drain in the
+// cup's floor (the slit alone can't keep up), so the seeds aren't drowned.
 const h = await createHarness();
 const g = blankGrid();
 const STONE = makeCell(T.STONE, 0, 0), WATER = makeCell(T.WATER, 0, 0);
-fill(g, 0, W, 240, 256, STONE);                              // floor
-fill(g, 127, 129, 0, 240, STONE);                            // divider between variants
+fill(g, 12, 116, 240, 250, STONE);                           // floors, with drain gaps
+fill(g, 129, W - 12, 240, 250, STONE);                       //   at their sides
+fill(g, 127, 129, 0, 256, STONE);                            // divider between variants
 const HOLE = 42, CUP = [0, 60, 200, 240];                     // x offsets within a half
 for (const ox of [0, 129]) {
   fill(g, ox + 10, ox + 118, 30, 101, STONE);                // bowl
   fill(g, ox + 16, ox + 112, 30, 95, WATER);                 // the water in it
-  fill(g, ox + HOLE, ox + HOLE + 4, 95, 101, 0);             // hole in the bottom
+  fill(g, ox + HOLE, ox + HOLE + 1, 95, 101, 0);             // 1px hole in the bottom
 }
 const N0 = 129;
 const [cx0, cx1, cy0, cy1] = CUP.map((v, k) => k < 2 ? v + N0 : v);
 fill(g, cx0, cx1, cy0, cy1, STONE);                          // cup
 fill(g, cx0 + 3, cx1 - 3, cy0 + 3, cy1, 0);                  // its inside
 fill(g, N0 + HOLE - 1, N0 + HOLE + 5, cy0, cy0 + 3, 0);      // roof gap under the hole
-fill(g, cx1 - 3, cx1, cy1 - 4, cy1 - 2, 0);                  // 2-cell slit out at the floor
+fill(g, cx1 - 3, cx1, cy1 - 2, cy1, 0);                      // 2-cell slit out at the floor
+fill(g, cx0 + 3, cx0 + 4, cy1, 250, 0);                       // 1px drain in its floor, far from the seeds
 // a stone ramp on the roof from the gap to the cup's outer edge, sloping
 // back into the gap, so no water spills down the outside to the slit
 for (let x = N0 + HOLE + 5; x < cx1; x++) fill(g, x, x + 1, cy0 - 2 - ((x - N0 - HOLE - 5) >> 1), cy0, STONE);
@@ -44,6 +49,7 @@ const regions = a => {
   return `open: ${f(s[0], 0)} || neck: ${f(s[1], 1)}`;
 };
 await h.snapshot(regions, { mom: true });
-for (const t of [5, 15, 30, 60, 100, 180]) { h.run(t * 180 - h.step); await h.snapshot(regions, { mom: true }); }
+const sump = step => { if (step % 30 === 0) h.brush({ x0: 1, y0: 252, x1: W - 2, y1: 252, r: 3, type: T.EMPTY }); };
+for (const t of [5, 15, 30, 60, 100, 180]) { h.run(t * 180 - h.step, sump); await h.snapshot(regions, { mom: true }); }
 h.finish('reservoir: a bowl drains onto seeds; left open, right through a cup with a 2-cell slit');
 </script></body></html>

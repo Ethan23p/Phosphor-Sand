@@ -86,7 +86,7 @@ export async function createHarness({ wgsl = simWGSL, extra = [] } = {}) {
       await rb.mapAsync(GPUMapMode.READ, 0, n); const a = new Uint32Array(rb.getMappedRange(0, n)).slice(); rb.unmap(); return a;
     },
     // With mom = true the plant buffer is kept too, statsFn gets it as its second
-    // argument, and finish draws two more rows: moving energy, then root distance
+    // argument, and finish draws three more rows: moving energy, root distance, then thickness
     async snapshot(statsFn = stats, { mom = false } = {}) {
       const a = await this.read(), m = mom ? await this.read(true) : null;
       const line = `step ${String(step).padStart(5)} (${(step / 180).toFixed(1).padStart(5)}s @3x): ${statsFn(a, m)}`;
@@ -96,7 +96,7 @@ export async function createHarness({ wgsl = simWGSL, extra = [] } = {}) {
     },
     // Render all snapshots side by side (scale 2) and print stats under them
     finish(title) {
-      const S = 2, cv = document.createElement('canvas'), rows = frames.some(f => f.m) ? 3 : 1;
+      const S = 2, cv = document.createElement('canvas'), rows = frames.some(f => f.m) ? 4 : 1;
       cv.id = 'cv'; cv.width = W * frames.length * S + (frames.length - 1) * 4; cv.height = H * S * rows + (rows - 1) * 4;
       const ctx = cv.getContext('2d'); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cv.width, cv.height);
       frames.forEach((f, k) => {
@@ -121,11 +121,21 @@ export async function createHarness({ wgsl = simWGSL, extra = [] } = {}) {
           ctx.drawImage(tmp, k * (W * S + 4), H * S + 4, W * S, H * S);
           // root distance (see distColor)
           for (let i = 0; i < N; i++) {
-            const o = i * 4, c = (f.a[i] & 255) === T.PLANT ? distColor(f.m[2 * i + 1]) : [20, 20, 20];
+            const o = i * 4, c = (f.a[i] & 255) === T.PLANT ? distColor(f.m[2 * i + 1] & 255) : [20, 20, 20];
             img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2];
           }
           tmp.getContext('2d').putImageData(img, 0, 0);
           ctx.drawImage(tmp, k * (W * S + 4), 2 * (H * S + 4), W * S, H * S);
+          // thickness: a cell's own (brightness), green for a grown plant
+          // (thick enough for the distance gate), orange for a seedling
+          for (let i = 0; i < N; i++) {
+            const o = i * 4, y = f.m[2 * i + 1];
+            if ((f.a[i] & 255) !== T.PLANT) { img.data[o] = img.data[o + 1] = img.data[o + 2] = 20; continue; }
+            const v = 0.35 + 0.65 * Math.min(((y >> 8) & 255) / (4 * TUNING.THICK_ADULT), 1), grown = (y >> 16) >= 2 * TUNING.THICK_ADULT;
+            img.data[o] = (grown ? 60 : 255) * v; img.data[o + 1] = (grown ? 230 : 140) * v; img.data[o + 2] = (grown ? 90 : 20) * v;
+          }
+          tmp.getContext('2d').putImageData(img, 0, 0);
+          ctx.drawImage(tmp, k * (W * S + 4), 3 * (H * S + 4), W * S, H * S);
         }
         ctx.fillStyle = '#fff'; ctx.font = '20px monospace'; ctx.fillText(f.line.match(/step +(\d+)/)[1] + ' / ' + f.line.match(/\(\s*([\d.]+)s/)[1] + 's', k * (W * S + 4) + 8, 24);
       });

@@ -44,7 +44,7 @@ const stats = (a, m) => {
     if (t === T.WATER && y > NECK && x >= SHELF_X) wet++;
     if (t !== T.PLANT) return;
     p++; e += plantE(c); x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y);
-    if (m[2 * i + 1] <= 6) near++;
+    if ((m[2 * i + 1] & 255) <= 6) near++;
   });
   return `plant ${String(p).padStart(4)} avgE ${String(p ? Math.round(e / p) : 0).padStart(2)} | spans x ${p ? x0 : '-'}..${p ? x1 : '-'} (sand at ${SAND_X}) top y ${p ? y0 : '-'} (neck ${NECK}) | within 3 cells of water ${near} | loose water on the shelf ${wet}`;
 };

@@ -35,7 +35,7 @@ const regions = (a, m) => {
   a.forEach((c, i) => {
     const y = (i / W) | 0, t = c & 255;
     if (t === T.WATER) w++;
-    if (t === T.PLANT) { e += plantE(c); if (y < BOTTOM) { up++; ud += m[2 * i + 1]; } else low++; }
+    if (t === T.PLANT) { e += plantE(c); if (y < BOTTOM) { up++; ud += m[2 * i + 1] & 255; } else low++; }
   });
   const p = up + low;
   return `water ${String(w).padStart(5)} plant ${String(p).padStart(4)} avgE ${String(p ? Math.round(e / p) : 0).padStart(3)} | at the bottom ${low} up the fall ${up} (avg dist ${up ? (ud / up / 2).toFixed(1) : '-'} cells)`;

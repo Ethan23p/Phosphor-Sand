@@ -363,6 +363,32 @@ fn plant_dist(c: Cells, d: ptr<function, Dists>, b: Block) {
   *d = nd;
 }
 
+// Thickness, in half cells like root distance, capped at DIST_CAP. Bits 0-7: a
+// cell's distance to the nearest cell that isn't plant, relaxed the same way
+// as root distance but with every non-plant cell as a source (and creeping up,
+// so it rises as the plant grows around it). Bits 8-15: the plant's thickness,
+// the most any cell of the plant has reached, passed through the plant and
+// never lowered. A seedling or a thin tendril stays thin; once any part of a
+// plant has been THICK_ADULT cells thick, every cell of it counts as grown.
+fn plant_thick(c: Cells, k: ptr<function, Dists>, b: Block) {
+  var nk: Dists;
+  for (var i = 0u; i < 4u; i = i + 1u) {
+    nk[i] = 0u;
+    if (gt(c[i]) != PLANT) { continue; }
+    var t = (*k)[i] & 255u;
+    var big = (*k)[i] >> 8u;
+    if ((roll(b, i, 70u) % DIST_CREEP_ODDS) == 0u) { t = min(t + 1u, DIST_CAP); }
+    for (var j = 0u; j < 4u; j = j + 1u) {
+      if (j == i) { continue; }
+      let s = select(2u, 3u, (i ^ j) == 3u);
+      if (gt(c[j]) != PLANT) { t = min(t, s); }
+      else { t = min(t, ((*k)[j] & 255u) + s); big = max(big, (*k)[j] >> 8u); }
+    }
+    nk[i] = t | (max(big, t) << 8u);
+  }
+  *k = nk;
+}
+
 // Bounce off something that isn't plant: the momentum into it flips, with loss
 // (then turns, see plant_turn)
 fn plant_reflect(q:vec2i, fx:bool, fy:bool, loss:u32) -> vec2i {
@@ -387,7 +413,7 @@ fn plant_deflect(q:vec2i, b: Block, i:u32, salt:u32) -> vec2i {
 // part moves when its target is in this block (every other step), carrying its
 // share of p; the energy left behind is at rest. In-block targets are i^1, i^2
 // and i^3.
-fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, Dists>, b: Block) {
+fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, Dists>, k: ptr<function, Dists>, b: Block) {
   var e0: array<u32, 4>;
   var oe: array<array<u32, 4>, 4>;   // energy sent from i to j
   var oq: array<array<vec2i, 4>, 4>; // momentum sent from i to j
@@ -450,9 +476,10 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, 
       let kept = en * (100u - BLOOM_LOSS) / 100u;
       let into = tj == EMPTY || (tj == WATER && (roll(b, i, 64u + j) % BLOOM_WATER_ODDS) == 0u);
       if (into && kept >= ENERGY_RES && e1[i] >= i32(BLOOM_E * ENERGY_RES)
-          && f32(roll(b, i, 60u + j) & 0xFFFFFFu) / 16777216.0 < bloom_odds((*d)[i])) {
+          && f32(roll(b, i, 60u + j) & 0xFFFFFFu) / 16777216.0 < bloom_odds((*d)[i], (*k)[i])) {
         (*c)[j] = mp(0u, noise_variant(cell_x(b.bx, j), cell_y(b.by, j)));
         (*d)[j] = min((*d)[i] + select(2u, 3u, (i ^ j) == 3u), DIST_CAP);
+        (*k)[j] = 2u | ((*k)[i] & 0xFF00u); // on the edge, in the parent's plant
         e1[i] -= i32(en); e1[j] += i32(kept);
         m1[i] -= q; m1[j] += vec2i(vec2f(q) * (f32(kept) / f32(en)));
       } else if (tj == WATER) {
@@ -511,14 +538,17 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, 
   }
 }
 
-// Chance per step that a cell this far from the roots (in half cells) may
-// bloom: none within BLOOM_MIN_DIST cells, then rising as a power BLOOM_RAMP
-// curve to certain at BLOOM_DIST cells. BLOOM_RAMP 0: always.
-fn bloom_odds(d: u32) -> f32 {
-  if (BLOOM_RAMP == 0u) { return 1.0; }
-  let lo = f32(2u * BLOOM_MIN_DIST);
-  let x = clamp((f32(d) - lo) / (f32(2u * BLOOM_DIST) - lo), 0.0, 1.0);
-  return pow(x, f32(BLOOM_RAMP));
+// Chance that a push into air from a cell this far from the roots (in half
+// cells) blooms: 1 in BLOOM_ROOT_ODDS at the roots, rising as a power
+// BLOOM_RAMP curve to certain at BLOOM_DIST cells. A soft gate, so a plant
+// sitting in water still grows, just rarely. Always for a plant that has never
+// been THICK_ADULT cells thick (k: thickness, see plant_thick), or with
+// BLOOM_RAMP 0.
+fn bloom_odds(d: u32, k: u32) -> f32 {
+  if (BLOOM_RAMP == 0u || (k >> 8u) < 2u * THICK_ADULT) { return 1.0; }
+  let lo = 1.0 / f32(BLOOM_ROOT_ODDS);
+  let x = clamp(f32(d) / f32(2u * BLOOM_DIST), 0.0, 1.0);
+  return mix(lo, 1.0, pow(x, f32(BLOOM_RAMP)));
 }
 
 fn tick_plant(cin: Cells, m: ptr<function, Moms>, d: ptr<function, Dists>, i:u32, b: Block) -> Cells {
@@ -674,18 +704,20 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   // Plants never move, so a plant's momentum stays in its slot
   var m: Moms;
   var dist: Dists;
+  var thk: Dists;
   for (var k = 0u; k < 4u; k = k + 1u) {
-    m[k] = vec2i(0, 0); dist[k] = DIST_CAP;
+    m[k] = vec2i(0, 0); dist[k] = DIST_CAP; thk[k] = 0u;
     if (gt(c[k]) == PLANT) {
       let ps = mi[idx(bx + (k & 1u), by + (k >> 1u))];
-      m[k] = unpack_mom(ps.x); dist[k] = ps.y;
+      m[k] = unpack_mom(ps.x); dist[k] = ps.y & 255u; thk[k] = ps.y >> 8u;
     }
   }
 
   c = movement(c, b.rng);
   plant_consume(&c, &m, &dist, b);
-  plant_flow(&c, &m, &dist, b);
+  plant_flow(&c, &m, &dist, &thk, b);
   plant_dist(c, &dist, b);
+  plant_thick(c, &thk, b);
 
   // Visit cells starting from a random slot so no position always acts first
   let start = hh(b.rng ^ 0x5bd1e995u) & 3u;
@@ -695,7 +727,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (t == FIRE)       { c = tick_fire(c, i, b); }
     else if (t == SMOKE) { c = tick_smoke(c, i); }
     else if (t == STEAM) { c = tick_steam(c, i, b); }
-    else if (t == SEED)  { c = tick_seed(c, i, b); dist[i] = 0u; } // a sprout is a root
+    else if (t == SEED)  { c = tick_seed(c, i, b); dist[i] = 0u; thk[i] = 0u; } // a sprout is a root, and thin
     else if (t == PLANT) { c = tick_plant(c, &m, &dist, i, b); }
     else if (t == EMBER) { c = tick_ember(c, i, b); }
   }
@@ -703,6 +735,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   c = convection(c, b);
 
   go[idx(x, y)] = c[pos];
-  mo[idx(x, y)] = select(vec2u(0u), vec2u(pack_mom(m[pos]), dist[pos]), gt(c[pos]) == PLANT);
+  mo[idx(x, y)] = select(vec2u(0u), vec2u(pack_mom(m[pos]), dist[pos] | (thk[pos] << 8u)), gt(c[pos]) == PLANT);
 }
 `;
