@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>trickle scenario</title></head>
+<body style="background:#111;color:#ccc;margin:8px;font:12px monospace"><pre id="out">running...</pre>
+<script type="module">
+import { createHarness, blankGrid, fill, T, makeCell, W, H, plantE, makePlant } from './harness.js';
+// A thick stone basin of water drains through a 1px channel down a long funnel,
+// a thin trickle onto a young plant on the floor: watered, not flooded (runoff
+// reaching the far left of the floor is erased, like a player clearing it). A
+// sand pile sits in the far corner. Success is the plant spreading along the
+// floor toward the sand rather than climbing the trickle.
+const h = await createHarness();
+const g = blankGrid();
+const STONE = makeCell(T.STONE, 0, 0), WATER = makeCell(T.WATER, 0, 0), SAND = makeCell(T.SAND, 0, 0);
+const CX = 155, NECK = 200, SAND_X = 215;
+const top = x => Math.round(92 + 22 * Math.sin(Math.PI * (x - 10) / 200));  // basin floor, sagging in the middle
+for (let x = 1; x < W - 1; x++) {
+  fill(g, x, x + 1, 35, top(x), WATER);
+  fill(g, x, x + 1, top(x), top(x) + 34, STONE);
+  // funnel: a wedge narrowing down to the neck
+  const half = Math.abs(x - CX), y0 = top(x) + 34, y1 = Math.round(NECK - half * 1.6);
+  if (y1 > y0) fill(g, x, x + 1, y0, y1, STONE);
+}
+fill(g, CX, CX + 1, top(CX), NECK, 0);                                   // the channel
+for (let x = SAND_X; x < W - 1; x++) fill(g, x, x + 1, H - 1 - Math.round((x - SAND_X) * 0.8), H - 1, SAND);
+// a young plant under the neck: a rough mound, half full
+const mom = new Uint32Array(2 * W * H);
+for (let x = CX - 14; x <= CX + 14; x++) {
+  const ht = Math.round(14 * (1 - ((x - CX) / 15) ** 2) + 3 * Math.sin(x * 1.7));
+  for (let y = H - 1 - ht; y < H - 1; y++) { g[y * W + x] = makePlant(20, (x * 7 + y * 13) & 3); mom[2 * (y * W + x) + 1] = 255; }
+}
+h.load(g, mom);
+const sump = step => { if (step % 30 === 0) h.brush({ x0: 1, y0: H - 4, x1: 24, y1: H - 4, r: 3, type: T.EMPTY }); };
+
+const stats = (a, m) => {
+  let p = 0, e = 0, wet = 0, x0 = W, x1 = 0, y0 = H, near = 0, nd = 0;
+  a.forEach((c, i) => {
+    const x = i % W, y = (i / W) | 0, t = c & 255;
+    if (t === T.WATER && y > NECK) wet++;
+    if (t !== T.PLANT) return;
+    p++; e += plantE(c); x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y);
+    if (m[2 * i + 1] <= 6) near++;
+  });
+  return `plant ${String(p).padStart(4)} avgE ${String(p ? Math.round(e / p) : 0).padStart(2)} | spans x ${p ? x0 : '-'}..${p ? x1 : '-'} (sand at ${SAND_X}) top y ${p ? y0 : '-'} (neck ${NECK}) | within 3 cells of water ${near} | loose water below the neck ${wet}`;
+};
+await h.snapshot(stats, { mom: true });
+for (const t of [5, 15, 30, 60, 100, 180]) { h.run(t * 180 - h.step, sump); await h.snapshot(stats, { mom: true }); }
+h.finish('trickle: a 1px channel drips onto a young plant on the floor, sand in the far corner');
+</script></body></html>

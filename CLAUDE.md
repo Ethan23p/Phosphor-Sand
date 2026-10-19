@@ -14,7 +14,7 @@ Phosphor Sand is a WebGPU falling-sand toy. It's plain ES modules with no build 
 ## Testing: dev scenarios
 
 There's no unit test suite. Behavior is verified by running the real shaders on the GPU:
-- `dev/*.html` pages (`flow`, `dist`, `waterfall`, `reservoir`, `tunnel`, `sealed`, `pool`, `garden`, `elements`) script an initial grid and brush input with `dev/harness.js`.
+- `dev/*.html` pages (`flow`, `dist`, `waterfall`, `trickle`, `reservoir`, `tunnel`, `sealed`, `pool`, `garden`, `elements`) script an initial grid and brush input with `dev/harness.js`.
 - `createHarness({ wgsl, extra })` runs a modified sim shader with extra bind group entries. Use it for temporary instrumentation, e.g. atomic counters at binding 5, and don't commit those probe pages.
 - Each page renders a time-lapse strip into `#cv` and per-snapshot stats into `#out`. `h.snapshot(stats, { mom: true })` also keeps the plant buffer (passed to `stats` as its second argument) and adds a row showing moving energy; `h.load(g, mom)` can start from a given plant buffer (e.g. preset root distances).
 - Open one through the server, e.g. `/dev/garden.html`.
@@ -22,6 +22,8 @@ There's no unit test suite. Behavior is verified by running the real shaders on 
 To run one headlessly:
 - Use playwright-core with the installed Chrome: `executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe'`, `args: ['--enable-unsafe-webgpu']`.
 - Wait until `#out` no longer says `running...`, then read `#out` and screenshot `#cv`.
+- Print every snapshot line as it lands and keep a hard timeout of a couple of minutes; run at most about 4 pages at once.
+- Any page takes tuning overrides in its query string, e.g. `/dev/trickle.html?BLOOM_RAMP=3`, for sweeps without editing `config.js`.
 - Keep that script in the scratchpad, not the repo.
 
 Expectations for sim changes:

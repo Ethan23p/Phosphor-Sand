@@ -43,7 +43,7 @@ const regions = a => {
   const f = (v, k) => `water ${String(v.w).padStart(4)} plant ${String(v.p).padStart(4)} avgE ${String(v.p ? Math.round(v.e / v.p) : 0).padStart(3)}` + (k ? ` | out the slit ${v.out} above the roof ${v.up}` : '');
   return `open: ${f(s[0], 0)} || neck: ${f(s[1], 1)}`;
 };
-await h.snapshot(regions);
-for (const t of [5, 15, 30, 60, 100, 180]) { h.run(t * 180 - h.step); await h.snapshot(regions); }
+await h.snapshot(regions, { mom: true });
+for (const t of [5, 15, 30, 60, 100, 180]) { h.run(t * 180 - h.step); await h.snapshot(regions, { mom: true }); }
 h.finish('reservoir: a bowl drains onto seeds; left open, right through a cup with a 2-cell slit');
 </script></body></html>
