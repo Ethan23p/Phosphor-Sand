@@ -9,7 +9,7 @@ import { createHarness, blankGrid, fill, T, makeCell, W, H, plantE } from './har
 const h = await createHarness();
 const g = blankGrid();
 const STONE = makeCell(T.STONE, 0, 0), WATER = makeCell(T.WATER, 0, 0);
-const HOLE = [83, 88], STUB = [88, 102, 205], THICK = 12, LEVEL = 100; // LEVEL: water line
+const HOLE = [85, 88], STUB = [88, 102, 205], THICK = 12, LEVEL = 100; // LEVEL: water line
 // basin floor height: sloping down to the hole from the left, curving up to the right
 const yb = x => x < HOLE[0] ? Math.round(140 + 30 * x / HOLE[0])
   : Math.round(170 - 110 * Math.pow(Math.max(0, x - HOLE[1]) / (W - HOLE[1]), 1.5));
