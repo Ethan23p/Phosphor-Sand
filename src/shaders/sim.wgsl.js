@@ -475,8 +475,7 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, 
       // air (or, 1 in BLOOM_WATER_ODDS times, into water, replacing it) grows
       // a new cell there, if the source is far enough from the roots (see
       // bloom_odds). The new cell takes the packet's energy and momentum, less
-      // BLOOM_LOSS % lost in the transfer, its heading jittered by up to
-      // BLOOM_SPREAD degrees so growth branches instead of running straight.
+      // BLOOM_LOSS % lost in the transfer.
       let kept = en * (100u - BLOOM_LOSS) / 100u;
       let into = tj == EMPTY || (tj == WATER && (roll(b, i, 64u + j) % BLOOM_WATER_ODDS) == 0u);
       if (into && kept >= ENERGY_RES && e1[i] >= i32(BLOOM_E * ENERGY_RES)
@@ -485,7 +484,7 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, 
         (*d)[j] = min((*d)[i] + select(2u, 3u, (i ^ j) == 3u), DIST_CAP);
         (*k)[j] = 2u | ((*k)[i] & 0xFF00u); // on the edge, in the parent's plant
         e1[i] -= i32(en); e1[j] += i32(kept);
-        m1[i] -= q; m1[j] += turn_mom(vec2i(vec2f(q) * (f32(kept) / f32(en))), plant_turn(b, i, 75u + j, 0u, BLOOM_SPREAD));
+        m1[i] -= q; m1[j] += vec2i(vec2f(q) * (f32(kept) / f32(en)));
       } else if (tj == WATER) {
         // Water that isn't bloomed into drains the packet: WATER_DRAIN % of
         // its energy is lost, and the rest reflects with WATER_LOSS
