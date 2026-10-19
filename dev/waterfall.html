@@ -3,9 +3,13 @@
 <body style="background:#111;color:#ccc;margin:8px;font:12px monospace"><pre id="out">running...</pre>
 <script type="module">
 import { createHarness, blankGrid, fill, T, makeCell, W, H, plantE } from './harness.js';
-// A big curved stone basin of water drains through a hole into a long fall onto
-// seeds on the floor, with a stone stub hanging beside the hole. Does the plant
-// flourish at the bottom, or climb the stream and eat the waterfall?
+// A big curved stone basin of water drains through a 3px hole into a long fall
+// onto seeds on a stone plateau, with a stone stub hanging beside the hole. Does
+// the plant flourish where the water lands, or climb the stream and eat the
+// waterfall? Water keeps being drawn into the basin, so the fall keeps going,
+// like a player keeping it topped up. What the plant doesn't drink runs off the
+// plateau into sumps on the floor that keep being erased, so the plant is never
+// flooded.
 const h = await createHarness();
 const g = blankGrid();
 const STONE = makeCell(T.STONE, 0, 0), WATER = makeCell(T.WATER, 0, 0);
@@ -20,10 +24,12 @@ for (let x = 0; x < W; x++) {
 fill(g, HOLE[0], HOLE[1], 0, 200, 0);                          // the hole (and no water right over it yet)
 fill(g, HOLE[0], HOLE[1], LEVEL, yb(HOLE[0]) - 10, WATER);     // refill the basin above the hole
 fill(g, STUB[0], STUB[1], yb(STUB[0]), STUB[2], STONE);         // stub hanging beside it
+const PLATEAU = [56, 116, 236];                                  // x0, x1, top
+fill(g, PLATEAU[0], PLATEAU[1], PLATEAU[2], H, STONE);
 h.load(g);
-h.brush({ x0: 66, y0: 252, x1: 100, y1: 252, r: 2, type: T.SEED, density: 60 });
+h.brush({ x0: 70, y0: PLATEAU[2] - 2, x1: 100, y1: PLATEAU[2] - 2, r: 1, type: T.SEED, density: 80 });
 
-const BOTTOM = 225;
+const BOTTOM = PLATEAU[2] - 20;  // plant above this is up the fall
 const regions = (a, m) => {
   let w = 0, up = 0, low = 0, e = 0, ud = 0;
   a.forEach((c, i) => {
@@ -35,6 +41,11 @@ const regions = (a, m) => {
   return `water ${String(w).padStart(5)} plant ${String(p).padStart(4)} avgE ${String(p ? Math.round(e / p) : 0).padStart(3)} | at the bottom ${low} up the fall ${up} (avg dist ${up ? (ud / up / 2).toFixed(1) : '-'} cells)`;
 };
 await h.snapshot(regions, { mom: true });
-for (const t of [5, 15, 30, 60, 100, 180]) { h.run(t * 180 - h.step); await h.snapshot(regions, { mom: true }); }
-h.finish(`waterfall: a basin drains in a long fall onto seeds (bottom = below y ${BOTTOM})`);
+const input = step => {
+  if (step % 60 === 0) h.brush({ x0: 150, y0: 70, r: 2, type: T.WATER });   // refill
+  if (step % 30 === 0) for (const [x0, x1] of [[1, PLATEAU[0] - 6], [PLATEAU[1] + 6, W - 2]])
+    h.brush({ x0, y0: H - 4, x1, y1: H - 4, r: 3, type: T.EMPTY });        // sumps
+};
+for (const t of [5, 15, 30, 60, 100, 180]) { h.run(t * 180 - h.step, input); await h.snapshot(regions, { mom: true }); }
+h.finish(`waterfall: a basin, kept topped up, drains in a long fall onto seeds on a plateau (up the fall = above y ${BOTTOM})`);
 </script></body></html>

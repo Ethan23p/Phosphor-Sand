@@ -8,9 +8,20 @@ export { T, makeCell };
 export const W = GRID_W, H = GRID_H, N = W * H;
 const NAMES = Object.fromEntries(Object.entries(T).map(([k, v]) => [v, k]));
 
+// Tuning overrides from the page's query string, e.g. waterfall.html?BLOOM_RAMP=4,
+// for sweeps without editing config.js: applied to TUNING (for the JS side) and
+// to the sim shader's consts, and noted in the strip's title
+export const OVERRIDES = Object.fromEntries([...new URLSearchParams(location.search)].filter(([k]) => k in TUNING).map(([k, v]) => [k, +v]));
+Object.assign(TUNING, OVERRIDES);
+export function tuned(wgsl) {
+  for (const [k, v] of Object.entries(OVERRIDES)) wgsl = wgsl.replace(new RegExp(`const ${k}:u32 = \\d+u;`), `const ${k}:u32 = ${v}u;`);
+  return wgsl;
+}
+
 // opts.wgsl swaps in a modified sim shader and opts.extra adds bind group
 // entries to it (for temporary instrumentation)
 export async function createHarness({ wgsl = simWGSL, extra = [] } = {}) {
+  wgsl = tuned(wgsl);
   const device = await (await navigator.gpu.requestAdapter()).requestDevice();
   const module = async code => {
     const m = device.createShaderModule({ code });
@@ -120,7 +131,8 @@ export async function createHarness({ wgsl = simWGSL, extra = [] } = {}) {
       });
       document.body.prepend(cv);
       const out = document.getElementById('out');
-      out.textContent = `${title}\n` + frames.map(f => f.line).join('\n');
+      const ov = Object.entries(OVERRIDES).map(([k, v]) => `${k}=${v}`).join(' ');
+      out.textContent = `${title}${ov ? ` [${ov}]` : ''}\n` + frames.map(f => f.line).join('\n');
       console.log('DONE');
     },
   };
