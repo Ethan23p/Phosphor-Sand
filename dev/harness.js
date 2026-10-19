@@ -131,7 +131,7 @@ export async function createHarness({ wgsl = simWGSL, extra = [] } = {}) {
           for (let i = 0; i < N; i++) {
             const o = i * 4, y = f.m[2 * i + 1];
             if ((f.a[i] & 255) !== T.PLANT) { img.data[o] = img.data[o + 1] = img.data[o + 2] = 20; continue; }
-            const v = 0.35 + 0.65 * Math.min(((y >> 8) & 255) / (4 * TUNING.THICK_ADULT), 1), grown = (y >> 16) >= 2 * TUNING.THICK_ADULT;
+            const v = 0.35 + 0.65 * Math.min(((y >> 8) & 255) / (4 * TUNING.THICK_ADULT), 1), grown = ((y >> 16) & 255) >= 2 * TUNING.THICK_ADULT;
             img.data[o] = (grown ? 60 : 255) * v; img.data[o + 1] = (grown ? 230 : 140) * v; img.data[o + 2] = (grown ? 90 : 20) * v;
           }
           tmp.getContext('2d').putImageData(img, 0, 0);

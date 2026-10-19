@@ -27,7 +27,7 @@ export const TUNING = {
   CRADLE: 0,             // 1: a packet arriving at a plant cell with at least its energy passes on its momentum, not its energy (Newton's cradle)
   SOLID_LOSS: 0,         // % lost glancing off stone etc....
   DEFLECT_SPREAD: 15,    // ...which turns it 90 degrees (side biased by the noise map), give or take this many
-  DAMP: 20,              // per mille of momentum settling into rest each step, scaled up from 0 at the roots to full at BLOOM_DIST
+  DAMP: 20,              // per mille of moving energy lost to friction each step, scaled up from 0 at the roots to full at BLOOM_DIST
   PLANT_GLOW: 12,        // a plant cell with this much energy renders at full brightness (cells store up to 255)
   BLOOM_E: 6,            // energy pushing into open air from a cell this full blooms a new cell there...
   BLOOM_LOSS: 25,        // ...losing this % of the packet in the transfer...
@@ -38,9 +38,8 @@ export const TUNING = {
   BLOOM_WATER_ODDS: 64,  // energy pushing into water blooms 1 in N as often; otherwise...
   WATER_DRAIN: 80,       // ...this % of it is lost (the rest reflects)
   ENERGY_RES: 64,        // plant energy is stored in fine units, this many per unit
-  METAB_ODDS: 3840,      // every cell burns 1 energy per ~21s; a full cell lasts ~4.3 min alone
-  SEED_DROP_ODDS: 16,    // a cell that runs empty leaves a seed instead of empty space
-  TRANSPIRE_ODDS: 64,    // 1 in N energy burned is breathed out as steam
+  AGE_ODDS: 128,         // a cell ages 1/N per step and retires at 255: lives ~3 min
+  SEED_DROP_ODDS: 16,    // a retiring cell leaves a seed 1 in N times (else steam, if it holds a water's worth)
 
   // ── Fire, water, steam ──
   IGNITE_ODDS: 8,        // fire's chance per step to ignite plants/seeds in its block

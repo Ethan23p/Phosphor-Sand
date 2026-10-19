@@ -379,15 +379,17 @@ fn plant_thick(c: Cells, k: ptr<function, Dists>, b: Block) {
     nk[i] = 0u;
     if (gt(c[i]) != PLANT) { continue; }
     var t = (*k)[i] & 255u;
-    var big = (*k)[i] >> 8u;
+    var big = ((*k)[i] >> 8u) & 255u;
+    var age = (*k)[i] >> 16u;
     if ((roll(b, i, 70u) % DIST_CREEP_ODDS) == 0u) { t = min(t + 1u, DIST_CAP); }
+    if ((roll(b, i, 71u) % AGE_ODDS) == 0u) { age = min(age + 1u, 255u); }
     for (var j = 0u; j < 4u; j = j + 1u) {
       if (j == i) { continue; }
       let s = select(2u, 3u, (i ^ j) == 3u);
       if (gt(c[j]) != PLANT) { t = min(t, s); }
-      else { t = min(t, ((*k)[j] & 255u) + s); big = max(big, (*k)[j] >> 8u); }
+      else { t = min(t, ((*k)[j] & 255u) + s); big = max(big, ((*k)[j] >> 8u) & 255u); }
     }
-    nk[i] = t | (max(big, t) << 8u);
+    nk[i] = t | (max(big, t) << 8u) | (age << 16u);
   }
   *k = nk;
 }
@@ -489,7 +491,7 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, 
         // Water that isn't bloomed into drains the packet: WATER_DRAIN % of
         // its energy is lost, and the rest reflects with WATER_LOSS
         let lost = en * WATER_DRAIN / 100u;
-        e1[i] -= i32(lost);
+        e1[i] -= i32(lost + (en - lost) * WATER_LOSS / 100u);
         let qk = vec2i(vec2f(q) * (f32(100u - WATER_DRAIN) / 100.0));
         let r = plant_reflect(qk, ((i ^ j) & 1u) != 0u, ((i ^ j) & 2u) != 0u, WATER_LOSS);
         m1[i] += turn_mom(r, plant_turn(b, i, 53u + j, NOISE_TURN, SPREAD)) - q;
@@ -499,7 +501,9 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, 
         // races through the young part of the plant and slows at its far
         // edges, where it can bloom
         let reach = f32(min((*d)[i], 2u * BLOOM_DIST)) / f32(2u * BLOOM_DIST);
-        let r = plant_reflect(q, ((i ^ j) & 1u) != 0u, ((i ^ j) & 2u) != 0u, u32(round(f32(AIR_LOSS) * reach)));
+        let loss = u32(round(f32(AIR_LOSS) * reach));
+        e1[i] -= i32(en * loss / 100u);
+        let r = plant_reflect(q, ((i ^ j) & 1u) != 0u, ((i ^ j) & 2u) != 0u, loss);
         m1[i] += turn_mom(r, plant_turn(b, i, 53u + j, NOISE_TURN, SPREAD)) - q;
       } else if (tj != PLANT || full[j]) {
         // Stone and the like (or a plant cell whose storage would overflow): the
@@ -508,6 +512,8 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, 
         // in this block and is a plant with room, the packet goes on there in
         // the same step
         let t = plant_deflect(q, b, i, 57u + j);
+        e1[i] -= i32(en * SOLID_LOSS / 100u);
+        let en = en * (100u - SOLID_LOSS) / 100u;
         var k = 4u;
         var best = 0.7071 * length(vec2f(t)); // within 45 degrees
         for (var s2 = 1u; s2 < 4u; s2 = s2 + 1u) {
@@ -534,11 +540,30 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, 
       }
     }
   }
+  // All of a cell's energy keeps moving: what arrives merges into one heading
+  // (the net momentum) at the speed its energy allows, so packets that meet
+  // carry on together rather than cancelling into rest; a dead-even head-on
+  // meeting bounces back the way the cell was heading.
   for (var i = 0u; i < 4u; i = i + 1u) {
     if (gt((*c)[i]) != PLANT) { continue; }
-    (*m)[i] = clamp_mom(m1[i], u32(e1[i]));
-    (*c)[i] = mp(u32(e1[i]), gv((*c)[i]));
+    let e = u32(max(e1[i], 0));
+    (*m)[i] = all_moving(m1[i], e, -(*m)[i], b, i);
+    (*c)[i] = mp(e, gv((*c)[i]));
   }
+}
+
+// A momentum carrying all of energy e (speed8 = e), along v, or along fallback
+// if v is zero, or a random heading if both are
+fn all_moving(v: vec2i, e: u32, fallback: vec2i, b: Block, i: u32) -> vec2i {
+  if (e == 0u) { return vec2i(0, 0); }
+  var u = vec2f(v);
+  if (v.x == 0 && v.y == 0) { u = vec2f(fallback); }
+  if (u.x == 0.0 && u.y == 0.0) {
+    let a = f32(roll(b, i, 72u) & 0xFFFFu) / 65535.0 * 6.2831853;
+    u = vec2f(cos(a), sin(a));
+  }
+  let au = abs(u);
+  return clamp_mom(vec2i(round(u * (f32(e) / (max(au.x, au.y) + (RT2 - 1.0) * min(au.x, au.y))))), e);
 }
 
 // Chance that a push into air from a cell this far from the roots (in half
@@ -552,42 +577,34 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, 
 const E_MAX: u32 = 16383u;
 
 fn bloom_odds(d: u32, k: u32) -> f32 {
-  if ((k >> 8u) < 2u * THICK_ADULT) { return 1.0; }
+  if (((k >> 8u) & 255u) < 2u * THICK_ADULT) { return 1.0; }
   let x = smoothstep(0.0, f32(2u * BLOOM_DIST), f32(d));
   return mix(f32(BLOOM_NEAR) / 1000.0, 1.0, x);
 }
 
-fn tick_plant(cin: Cells, m: ptr<function, Moms>, d: ptr<function, Dists>, i:u32, b: Block) -> Cells {
+fn tick_plant(cin: Cells, m: ptr<function, Moms>, d: ptr<function, Dists>, k: ptr<function, Dists>, i:u32, b: Block) -> Cells {
   var c = cin;
   var energy = pe(c[i]);
   let color = gv(c[i]) & 3u;
-  let mom = (*m)[i];
 
-  // Decay: burn one fine unit every ~METAB_ODDS / ENERGY_RES steps (one whole
-  // unit per ~METAB_ODDS), sometimes breathing out steam into open air
-  let mr = roll(b, i, 34u);
-  if ((mr % max(METAB_ODDS / ENERGY_RES, 1u)) == 0u && energy > 0u) {
-    energy = energy - 1u;
-    if (((mr >> 8u) % (TRANSPIRE_ODDS * ENERGY_RES)) == 0u) {
-      let j = find_neighbor(c, i, EMPTY, roll(b, i, 37u));
-      if (j < 4u) { c[j] = steam_cell(roll(b, i, 38u)); }
-    }
-  }
-
-  // An empty cell dies, sometimes leaving a seed
-  if (energy == 0u) {
+  // Decay: a cell retires once its age (see plant_thick) runs out, about
+  // 255 * AGE_ODDS steps after it grew, whatever energy it holds. It sometimes
+  // leaves a seed; otherwise, if it holds a water's worth of energy, it is
+  // breathed out as steam (the rest is lost), and if not it's just gone.
+  if (((*k)[i] >> 16u) >= 255u) {
     if ((roll(b, i, 35u) % SEED_DROP_ODDS) == 0u) { c[i] = mc(SEED, 0u, roll(b, i, 36u) & 3u); }
+    else if (energy >= WATER_GAIN * ENERGY_RES) { c[i] = steam_cell(roll(b, i, 38u)); }
     else { c[i] = 0u; }
     (*m)[i] = vec2i(0, 0);
     return c;
   }
 
-  // Damp: moving energy settles into resting energy, hardly at all near the
-  // roots and up to DAMP per mille from BLOOM_DIST cells out
+  // Friction: moving energy is lost as heat, hardly at all near the roots and
+  // up to DAMP per mille a step from BLOOM_DIST cells out
   let reach = f32(min((*d)[i], 2u * BLOOM_DIST)) / f32(2u * BLOOM_DIST);
-  let damped = vec2i(vec2f(mom) * (1.0 - f32(DAMP) / 1000.0 * reach));
+  energy = u32(f32(energy) * (1.0 - f32(DAMP) / 1000.0 * reach));
 
-  (*m)[i] = clamp_mom(damped, energy);
+  (*m)[i] = clamp_mom((*m)[i], energy);
   c[i] = mp(energy, color);
   return c;
 }
@@ -734,7 +751,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     else if (t == SMOKE) { c = tick_smoke(c, i); }
     else if (t == STEAM) { c = tick_steam(c, i, b); }
     else if (t == SEED)  { c = tick_seed(c, i, b); dist[i] = 0u; thk[i] = 0u; } // a sprout is a root, and thin
-    else if (t == PLANT) { c = tick_plant(c, &m, &dist, i, b); }
+    else if (t == PLANT) { c = tick_plant(c, &m, &dist, &thk, i, b); }
     else if (t == EMBER) { c = tick_ember(c, i, b); }
   }
 

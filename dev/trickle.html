@@ -34,7 +34,7 @@ const mom = new Uint32Array(2 * W * H);
 const P0 = CX - 16, P1 = CX + 44;
 for (let x = P0; x <= P1; x++) {
   const ht = Math.round(20 * Math.sqrt(1 - ((2 * x - P0 - P1) / (P1 - P0 + 2)) ** 2) + 3 * Math.sin(x * 1.7));
-  for (let y = ground(x) - ht; y < ground(x); y++) { g[y * W + x] = makePlant(6, (x * 7 + y * 13) & 3); mom[2 * (y * W + x) + 1] = 255; }
+  for (let y = ground(x) - ht; y < ground(x); y++) { g[y * W + x] = makePlant(6, (x * 7 + y * 13) & 3); mom[2 * (y * W + x) + 1] = 255 | (((x * 37 + y * 91) % 200) << 24); }
 }
 h.load(g, mom);
 const sump = step => { if (step % 30 === 0) h.brush({ x0: 1, y0: H - 4, x1: SHELF_X - 4, y1: H - 4, r: 3, type: T.EMPTY }); };
