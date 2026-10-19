@@ -59,7 +59,7 @@ Expectations for sim changes:
 - Use the accessors `gt`, `gd`, `gv` and the constructor `mc` from `common.wgsl.js`; `makeCell` is the JS equivalent.
 - Plant energy is 14 bits in fine units (`ENERGY_RES` per tuning unit): `data` holds the low 8, variant bits 2-7 the high 6. Use `pe`/`mp` (JS: `plantE`/`makePlant` in the harness).
 - Plant momentum and root distance share a second ping-ponged buffer (sim bindings 3 and 4, `vec2u` per cell): `.x` is signed 16-bit momentum x and y (`unpack_mom`/`pack_mom`; JS `momOf`), `.y` the root distance in half cells. `h.read(true)` returns them interleaved. `main` loads them into `m`/`dist` for plant slots and writes zero for every other cell, so a new plant always starts at rest; a sprouting seed gets distance 0, a bloomed cell its parent's + 2.
-- Plant tick order: `plant_consume` → `plant_flow` → `plant_dist` (all for the whole block, right after `movement`) → `tick_plant` (bloom, decay, damp).
+- Plant tick order: `plant_consume` → `plant_flow` (transfer and bloom) → `plant_dist` (all for the whole block, right after `movement`) → `tick_plant` (decay, damp).
 
 **Brush** (`brush.wgsl.js`):
 - It's a GPU capsule stamp that edits the current grid in place. It only fills empty cells; the eraser clears all.

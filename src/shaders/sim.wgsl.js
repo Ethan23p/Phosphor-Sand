@@ -267,8 +267,8 @@ fn tick_seed(cin: Cells, i:u32, b: Block) -> Cells {
 //   split evenly over x and y.
 //   Root distance: how far each cell is from where the plant last drank,
 //   measured through the plant (see plant_dist). Bloom favors far cells.
-//   Tick order: consume (plant_consume) -> transfer (plant_flow) -> root
-//   distance (plant_dist) -> bloom -> decay -> damp (tick_plant).
+//   Tick order: consume (plant_consume) -> transfer and bloom (plant_flow) ->
+//   root distance (plant_dist) -> decay -> damp (tick_plant).
 alias Moms = array<vec2i, 4>;
 alias Dists = array<u32, 4>;
 
@@ -323,10 +323,11 @@ fn plant_consume(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<functio
   for (var k = 0u; k < 4u; k = k + 1u) {
     let i = (start + k) & 3u;
     if (gt((*c)[i]) != PLANT) { continue; }
-    let energy = pe((*c)[i]);
-    if (energy + WATER_GAIN * ENERGY_RES > PLANT_CAP * ENERGY_RES) { continue; }
     let j = find_neighbor(*c, i, WATER, roll(b, i, 31u));
     if (j == 4u) { continue; }
+    (*d)[i] = 0u; // touching water is a source, full or not
+    let energy = pe((*c)[i]);
+    if (energy + WATER_GAIN * ENERGY_RES > PLANT_CAP * ENERGY_RES) { continue; }
     let away = vec2f(f32(i & 1u) - f32(j & 1u), f32(i >> 1u) - f32(j >> 1u));
     let a = atan2(away.y, away.x) + plant_turn(b, i, 32u, DRINK_TURN, DRINK_SPREAD);
     let u = vec2f(cos(a), sin(a));
@@ -336,13 +337,13 @@ fn plant_consume(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<functio
     (*m)[i] = clamp_mom((*m)[i] + vec2i(round(u * g)), ne);
     (*c)[i] = mp(ne, gv((*c)[i]));
     (*c)[j] = 0u;
-    (*d)[i] = 0u;
   }
 }
 
 // Root distance, in half cells (an orthogonal step is 2, a diagonal 3), capped
-// at DIST_CAP. Drinking sets a cell's distance to 0; every cell otherwise takes
-// the shortest route offered by its plant neighbors in this block. A distance
+// at DIST_CAP. Touching water (drinking or full) sets a cell's distance to 0;
+// every cell otherwise takes the shortest route offered by its plant neighbors
+// in this block. A distance
 // also creeps up now and then unless a neighbor keeps confirming it, so a
 // branch cut off from its roots drifts up to the cap.
 const DIST_CAP: u32 = 255u;
@@ -441,25 +442,34 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, 
       let en = oe[i][j];
       if (i == j || (q.x == 0 && q.y == 0 && en == 0u)) { continue; }
       let tj = gt((*c)[j]);
-      // With BLOOM_PUSH, a packet from a cell full enough to bloom may push on
-      // into open air instead of bouncing: the new cell takes the packet's
-      // energy and momentum (the same distance odds as blooming)
-      let reach_p = min(f32((*d)[i]) / f32(2u * BLOOM_DIST), 1.0);
-      let p_p = max(pow(reach_p, f32(BLOOM_RAMP)), 1.0 / f32(BLOOM_NEAR_ODDS));
-      if (BLOOM_PUSH == 1u && tj == EMPTY && en > 0u && e1[i] >= i32(BLOOM_E * ENERGY_RES)
-          && f32(roll(b, i, 60u + j) & 0xFFFFFFu) / 16777216.0 < p_p) {
+      // Bloom: a packet from a cell with at least BLOOM_E pushing into open
+      // air (or, 1 in BLOOM_WATER_ODDS times, into water, replacing it) grows
+      // a new cell there, if the source is far enough from the roots (see
+      // bloom_odds). The new cell takes the packet's energy and momentum, less
+      // BLOOM_LOSS % lost in the transfer.
+      let kept = en * (100u - BLOOM_LOSS) / 100u;
+      let into = tj == EMPTY || (tj == WATER && (roll(b, i, 64u + j) % BLOOM_WATER_ODDS) == 0u);
+      if (into && kept >= ENERGY_RES && e1[i] >= i32(BLOOM_E * ENERGY_RES)
+          && f32(roll(b, i, 60u + j) & 0xFFFFFFu) / 16777216.0 < bloom_odds((*d)[i])) {
         (*c)[j] = mp(0u, noise_variant(cell_x(b.bx, j), cell_y(b.by, j)));
         (*d)[j] = min((*d)[i] + select(2u, 3u, (i ^ j) == 3u), DIST_CAP);
-        e1[i] -= i32(en); e1[j] += i32(en);
-        m1[i] -= q; m1[j] += q;
-      } else if (tj == EMPTY || tj == WATER) {
-        // Water reflects with small loss. Open air reflects with hardly any
-        // loss near the roots, rising to AIR_LOSS at BLOOM_DIST cells out, so
-        // energy races through the young part of the plant and slows at its
-        // far edges, where it can bloom
+        e1[i] -= i32(en); e1[j] += i32(kept);
+        m1[i] -= q; m1[j] += vec2i(vec2f(q) * (f32(kept) / f32(en)));
+      } else if (tj == WATER) {
+        // Water that isn't bloomed into drains the packet: WATER_DRAIN % of
+        // its energy is lost, and the rest reflects with WATER_LOSS
+        let lost = en * WATER_DRAIN / 100u;
+        e1[i] -= i32(lost);
+        let qk = vec2i(vec2f(q) * (f32(100u - WATER_DRAIN) / 100.0));
+        let r = plant_reflect(qk, ((i ^ j) & 1u) != 0u, ((i ^ j) & 2u) != 0u, WATER_LOSS);
+        m1[i] += turn_mom(r, plant_turn(b, i, 53u + j, NOISE_TURN, SPREAD)) - q;
+      } else if (tj == EMPTY) {
+        // Open air that isn't bloomed into reflects with hardly any loss near
+        // the roots, rising to AIR_LOSS at BLOOM_DIST cells out, so energy
+        // races through the young part of the plant and slows at its far
+        // edges, where it can bloom
         let reach = f32(min((*d)[i], 2u * BLOOM_DIST)) / f32(2u * BLOOM_DIST);
-        let loss = select(u32(round(f32(AIR_LOSS) * reach)), WATER_LOSS, tj == WATER);
-        let r = plant_reflect(q, ((i ^ j) & 1u) != 0u, ((i ^ j) & 2u) != 0u, loss);
+        let r = plant_reflect(q, ((i ^ j) & 1u) != 0u, ((i ^ j) & 2u) != 0u, u32(round(f32(AIR_LOSS) * reach)));
         m1[i] += turn_mom(r, plant_turn(b, i, 53u + j, NOISE_TURN, SPREAD)) - q;
       } else if (tj == PLANT && full[j] && CRADLE == 1u) {
         // A full plant cell takes the momentum but not the energy, like a
@@ -468,7 +478,8 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, 
         m1[i] -= q; m1[j] += q;
       } else if (tj != PLANT || full[j]) {
         // Stone and the like (or a full plant cell, without CRADLE): the
-        // momentum glances off sideways, and if the cell it now points at is
+        // momentum glances off sideways (turned 90 degrees, give or take
+        // DEFLECT_SPREAD, to the side the noise map picks), and if the cell it now points at is
         // in this block and is a plant with room, the packet goes on there in
         // the same step
         let t = plant_deflect(q, b, i, 57u + j);
@@ -500,37 +511,21 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, 
   }
 }
 
+// Chance per step that a cell this far from the roots (in half cells) may
+// bloom: none within BLOOM_MIN_DIST cells, then rising as a power BLOOM_RAMP
+// curve to certain at BLOOM_DIST cells. BLOOM_RAMP 0: always.
+fn bloom_odds(d: u32) -> f32 {
+  if (BLOOM_RAMP == 0u) { return 1.0; }
+  let lo = f32(2u * BLOOM_MIN_DIST);
+  let x = clamp((f32(d) - lo) / (f32(2u * BLOOM_DIST) - lo), 0.0, 1.0);
+  return pow(x, f32(BLOOM_RAMP));
+}
+
 fn tick_plant(cin: Cells, m: ptr<function, Moms>, d: ptr<function, Dists>, i:u32, b: Block) -> Cells {
   var c = cin;
   var energy = pe(c[i]);
   let color = gv(c[i]) & 3u;
   let mom = (*m)[i];
-
-  // Bloom: high energy, low momentum, and more likely the farther from the
-  // roots: the chance per step is (distance / BLOOM_DIST) to the power
-  // BLOOM_RAMP, certain at BLOOM_DIST cells and at least 1 in BLOOM_NEAR_ODDS.
-  // Grows into an orthogonal neighbor of open air, or, less often and only
-  // fuller, of water (replacing it)
-  let reach_b = min(f32((*d)[i]) / f32(2u * BLOOM_DIST), 1.0);
-  let p_b = max(pow(reach_b, f32(BLOOM_RAMP)), 1.0 / f32(BLOOM_NEAR_ODDS));
-  let far = f32(roll(b, i, 52u) & 0xFFFFFFu) / 16777216.0 < p_b;
-  if (far && energy >= BLOOM_E * ENERGY_RES && speed8(mom) * 100u <= energy * BLOOM_MOVING) {
-    let r = roll(b, i, 47u) & 1u;
-    for (var k = 0u; k < 2u; k = k + 1u) {
-      let j = i ^ (1u + ((r + k) & 1u));
-      let tj = gt(c[j]);
-      let into_water = tj == WATER && energy >= BLOOM_WATER_E * ENERGY_RES
-                       && (roll(b, i, 48u + k) % BLOOM_WATER_ODDS) == 0u;
-      if (tj == EMPTY || into_water) {
-        let half = energy / 2u;
-        energy = energy - half;
-        c[j] = mp(half, noise_variant(cell_x(b.bx, j), cell_y(b.by, j)));
-        (*m)[j] = vec2i(0, 0);
-        (*d)[j] = min((*d)[i] + 2u, DIST_CAP);
-        break;
-      }
-    }
-  }
 
   // Decay: burn one fine unit every ~METAB_ODDS / ENERGY_RES steps (one whole
   // unit per ~METAB_ODDS), sometimes breathing out steam into open air

@@ -14,7 +14,7 @@ export const T = {
 // "_ODDS: n" means a 1-in-n chance per step. Times assume 3x speed ≈ 180 steps/s.
 export const TUNING = {
   // ── Plant life cycle ──
-  GERM_E: 40,            // a germinated seed starts full
+  GERM_E: 25,            // a germinated seed starts this full (with room to drink)
   GERM_ODDS: 32,         // seed touching water sprouts after ~0.2s
   WATER_GAIN: 10,        // energy per water consumed (4 waters fill a cell)
   DRINK_TURN: 5,         // degrees the noise map turns energy as it's drunk (away from the water)
@@ -28,15 +28,14 @@ export const TUNING = {
   DEFLECT_SPREAD: 15,    // ...which turns it 90 degrees (side biased by the noise map), give or take this many
   DAMP: 20,              // per mille of momentum settling into rest each step, scaled up from 0 at the roots to full at BLOOM_DIST
   PLANT_CAP: 40,         // "full": no more drinking, and arriving energy stays put
-  BLOOM_E: 20,           // a cell this full can bloom into open air...
-  BLOOM_MOVING: 30,      // ...if at most this % of its energy is moving
-  BLOOM_PUSH: 0,         // 1: a packet from a cell full enough to bloom may push on into open air, carrying its energy and momentum
-  BLOOM_DIST: 20,        // ...and certainly this many cells from the roots
-  BLOOM_NEAR_ODDS: 256,  //    (1 in N at the roots, rising with distance)
-  BLOOM_RAMP: 2,         //    (chance per step rises as the distance to this power; 1 is linear, which lets cells a few steps from water bloom almost at once)
+  BLOOM_E: 36,           // energy pushing into open air from a cell this full blooms a new cell there...
+  BLOOM_LOSS: 50,        // ...losing this % of the packet in the transfer...
+  BLOOM_DIST: 20,        // ...certainly this many cells from the roots
+  BLOOM_MIN_DIST: 2,     //    (never within this many cells of the roots, rising from there)
+  BLOOM_RAMP: 0,         //    (the chance rises as the distance to this power; 0: no distance gate, any push into air blooms)
   DIST_CREEP_ODDS: 8,    // root distance creeps up 1/N per step unless confirmed
-  BLOOM_WATER_E: 38,     // blooming into water needs more energy...
-  BLOOM_WATER_ODDS: 8,   // ...and is tried 1 in N as often
+  BLOOM_WATER_ODDS: 64,  // energy pushing into water blooms 1 in N as often; otherwise...
+  WATER_DRAIN: 80,       // ...this % of it is lost (the rest reflects)
   ENERGY_RES: 64,        // plant energy is stored in fine units, this many per unit
   METAB_ODDS: 1280,      // every cell burns 1 energy per ~7s; a full cell lasts ~4.7 min alone
   SEED_DROP_ODDS: 16,    // a cell that runs empty leaves a seed instead of empty space
