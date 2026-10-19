@@ -329,7 +329,7 @@ fn plant_consume(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<functio
       if (j == 4u) { break; }
       (*d)[i] = 0u; // touching water is a source, full or not
       let energy = pe((*c)[i]);
-      if (energy + WATER_GAIN * ENERGY_RES > PLANT_CAP * ENERGY_RES) { break; }
+      if (energy + WATER_GAIN * ENERGY_RES > E_MAX) { break; } // storage is full
       let away = vec2f(f32(i & 1u) - f32(j & 1u), f32(i >> 1u) - f32(j >> 1u));
       let a = atan2(away.y, away.x) + plant_turn(b, i, 32u + 50u * n, DRINK_TURN, DRINK_SPREAD);
       let u = vec2f(cos(a), sin(a));
@@ -463,7 +463,7 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, 
   var full: array<bool, 4>;
   for (var i = 0u; i < 4u; i = i + 1u) {
     e1[i] = i32(e0[i]); m1[i] = (*m)[i];
-    full[i] = gt((*c)[i]) == PLANT && e0[i] + inc[i] > PLANT_CAP * ENERGY_RES;
+    full[i] = gt((*c)[i]) == PLANT && e0[i] + inc[i] > E_MAX; // would overflow storage
   }
   for (var i = 0u; i < 4u; i = i + 1u) {
     for (var j = 0u; j < 4u; j = j + 1u) {
@@ -501,13 +501,8 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, 
         let reach = f32(min((*d)[i], 2u * BLOOM_DIST)) / f32(2u * BLOOM_DIST);
         let r = plant_reflect(q, ((i ^ j) & 1u) != 0u, ((i ^ j) & 2u) != 0u, u32(round(f32(AIR_LOSS) * reach)));
         m1[i] += turn_mom(r, plant_turn(b, i, 53u + j, NOISE_TURN, SPREAD)) - q;
-      } else if (tj == PLANT && full[j] && CRADLE == 1u) {
-        // A full plant cell takes the momentum but not the energy, like a
-        // Newton's cradle: the packet stops here and the full cell's own
-        // energy moves on along it
-        m1[i] -= q; m1[j] += q;
       } else if (tj != PLANT || full[j]) {
-        // Stone and the like (or a full plant cell, without CRADLE): the
+        // Stone and the like (or a plant cell whose storage would overflow): the
         // momentum glances off sideways (turned 90 degrees, give or take
         // DEFLECT_SPREAD, to the side the noise map picks), and if the cell it now points at is
         // in this block and is a plant with room, the packet goes on there in
@@ -522,7 +517,7 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, 
           let dt = dot(normalize(dv), vec2f(t));
           if (dt > best) { best = dt; k = kk; }
         }
-        if (k < 4u && gt((*c)[k]) == PLANT && e1[k] + i32(en) <= i32(PLANT_CAP * ENERGY_RES)) {
+        if (k < 4u && gt((*c)[k]) == PLANT && e1[k] + i32(en) <= i32(E_MAX)) {
           e1[i] -= i32(en); e1[k] += i32(en);
           m1[i] -= q; m1[k] += t;
         } else {
@@ -546,6 +541,11 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, 
 // 1000 no gate), rising smoothly to certain at BLOOM_DIST cells. Always for a
 // plant that has never been THICK_ADULT cells thick (k: thickness, see
 // plant_thick).
+// The most energy a plant cell can store (14 bits of fine units). Plants have
+// no other capacity: they drink while there is water, and energy passes
+// through them freely.
+const E_MAX: u32 = 16383u;
+
 fn bloom_odds(d: u32, k: u32) -> f32 {
   if ((k >> 8u) < 2u * THICK_ADULT) { return 1.0; }
   let x = smoothstep(0.0, f32(2u * BLOOM_DIST), f32(d));

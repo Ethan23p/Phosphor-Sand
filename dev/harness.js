@@ -172,7 +172,7 @@ export function colorOf(cell) {
   let c = cols[(v & 3) % cols.length];
   if (t === T.FIRE) c = c.map(x => Math.min(1, x * (1 + d / 200)));
   if (t === T.PLANT) {
-    const k = 0.25 + 1.0 * Math.min(plantE(cell) / TUNING.PLANT_CAP, 1);
+    const k = 0.25 + 1.0 * Math.min(plantE(cell) / TUNING.PLANT_GLOW, 1);
     c = c.map(x => Math.min(1, x * k));
   }
   return c;

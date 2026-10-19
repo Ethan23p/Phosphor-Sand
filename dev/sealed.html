@@ -16,7 +16,7 @@ const put = (x, y) => { g[y * W + x] = makePlant(9); };
 for (let x = 40; x <= 196; x++) put(x, 139);          // root under the neck, then the tunnel; the end pokes into the far chamber
 h.load(g);
 const refill = null;
-const CAP = (await import('/src/config.js')).TUNING.PLANT_CAP;
+const CAP = (await import('/src/config.js')).TUNING.PLANT_GLOW;
 const P = [['root',40,139],['tun0',45,139],['tun10',60,139],['tun25',100,139],['tun50',130,139],['tun75',160,139],['tunEnd',189,139],['tip',196,139]];
 const rows = ['  t  ' + P.map(p => p[0].padStart(9)).join('') + '   far'];
 const regions = a => {
