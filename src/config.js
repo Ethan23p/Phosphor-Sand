@@ -34,7 +34,6 @@ export const TUNING = {
   BLOOM_DIST: 20,        // ...and certainly this many cells from the roots
   BLOOM_NEAR_ODDS: 256,  //    (1 in N at the roots, rising with distance)
   BLOOM_RAMP: 2,         //    (chance per step rises as the distance to this power; 1 is linear, which lets cells a few steps from water bloom almost at once)
-  BLOOM_TIP: 1,          // 1: only tips bloom (no plant neighbor farther from the roots)
   DIST_CREEP_ODDS: 8,    // root distance creeps up 1/N per step unless confirmed
   BLOOM_WATER_E: 38,     // blooming into water needs more energy...
   BLOOM_WATER_ODDS: 8,   // ...and is tried 1 in N as often

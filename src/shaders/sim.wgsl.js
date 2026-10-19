@@ -513,11 +513,7 @@ fn tick_plant(cin: Cells, m: ptr<function, Moms>, d: ptr<function, Dists>, i:u32
   // fuller, of water (replacing it)
   let reach_b = min(f32((*d)[i]) / f32(2u * BLOOM_DIST), 1.0);
   let p_b = max(pow(reach_b, f32(BLOOM_RAMP)), 1.0 / f32(BLOOM_NEAR_ODDS));
-  var far = f32(roll(b, i, 52u) & 0xFFFFFFu) / 16777216.0 < p_b;
-  // With BLOOM_TIP, only a tip blooms: no plant neighbor in the block is farther out
-  for (var j = 0u; j < 4u; j = j + 1u) {
-    if (BLOOM_TIP == 1u && j != i && gt(c[j]) == PLANT && (*d)[j] > (*d)[i]) { far = false; }
-  }
+  let far = f32(roll(b, i, 52u) & 0xFFFFFFu) / 16777216.0 < p_b;
   if (far && energy >= BLOOM_E * ENERGY_RES && speed8(mom) * 100u <= energy * BLOOM_MOVING) {
     let r = roll(b, i, 47u) & 1u;
     for (var k = 0u; k < 2u; k = k + 1u) {

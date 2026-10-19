@@ -24,17 +24,17 @@ h.load(g);
 h.brush({ x0: 66, y0: 252, x1: 100, y1: 252, r: 2, type: T.SEED, density: 60 });
 
 const BOTTOM = 225;
-const regions = a => {
-  let w = 0, up = 0, low = 0, e = 0;
+const regions = (a, m) => {
+  let w = 0, up = 0, low = 0, e = 0, ud = 0;
   a.forEach((c, i) => {
     const y = (i / W) | 0, t = c & 255;
     if (t === T.WATER) w++;
-    if (t === T.PLANT) { e += plantE(c); if (y < BOTTOM) up++; else low++; }
+    if (t === T.PLANT) { e += plantE(c); if (y < BOTTOM) { up++; ud += m[2 * i + 1]; } else low++; }
   });
   const p = up + low;
-  return `water ${String(w).padStart(5)} plant ${String(p).padStart(4)} avgE ${String(p ? Math.round(e / p) : 0).padStart(3)} | at the bottom ${low} up the fall ${up}`;
+  return `water ${String(w).padStart(5)} plant ${String(p).padStart(4)} avgE ${String(p ? Math.round(e / p) : 0).padStart(3)} | at the bottom ${low} up the fall ${up} (avg dist ${up ? (ud / up / 2).toFixed(1) : '-'} cells)`;
 };
-await h.snapshot(regions);
-for (const t of [5, 15, 30, 60, 100, 180]) { h.run(t * 180 - h.step); await h.snapshot(regions); }
+await h.snapshot(regions, { mom: true });
+for (const t of [5, 15, 30, 60, 100, 180]) { h.run(t * 180 - h.step); await h.snapshot(regions, { mom: true }); }
 h.finish(`waterfall: a basin drains in a long fall onto seeds (bottom = below y ${BOTTOM})`);
 </script></body></html>

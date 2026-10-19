@@ -75,7 +75,7 @@ export async function createHarness({ wgsl = simWGSL, extra = [] } = {}) {
       await rb.mapAsync(GPUMapMode.READ, 0, n); const a = new Uint32Array(rb.getMappedRange(0, n)).slice(); rb.unmap(); return a;
     },
     // With mom = true the plant buffer is kept too, statsFn gets it as its second
-    // argument, and finish draws a second row showing the moving energy
+    // argument, and finish draws two more rows: moving energy, then root distance
     async snapshot(statsFn = stats, { mom = false } = {}) {
       const a = await this.read(), m = mom ? await this.read(true) : null;
       const line = `step ${String(step).padStart(5)} (${(step / 180).toFixed(1).padStart(5)}s @3x): ${statsFn(a, m)}`;
@@ -85,7 +85,7 @@ export async function createHarness({ wgsl = simWGSL, extra = [] } = {}) {
     },
     // Render all snapshots side by side (scale 2) and print stats under them
     finish(title) {
-      const S = 2, cv = document.createElement('canvas'), rows = frames.some(f => f.m) ? 2 : 1;
+      const S = 2, cv = document.createElement('canvas'), rows = frames.some(f => f.m) ? 3 : 1;
       cv.id = 'cv'; cv.width = W * frames.length * S + (frames.length - 1) * 4; cv.height = H * S * rows + (rows - 1) * 4;
       const ctx = cv.getContext('2d'); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cv.width, cv.height);
       frames.forEach((f, k) => {
@@ -108,6 +108,13 @@ export async function createHarness({ wgsl = simWGSL, extra = [] } = {}) {
           }
           tmp.getContext('2d').putImageData(img, 0, 0);
           ctx.drawImage(tmp, k * (W * S + 4), H * S + 4, W * S, H * S);
+          // root distance (see distColor)
+          for (let i = 0; i < N; i++) {
+            const o = i * 4, c = (f.a[i] & 255) === T.PLANT ? distColor(f.m[2 * i + 1]) : [20, 20, 20];
+            img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2];
+          }
+          tmp.getContext('2d').putImageData(img, 0, 0);
+          ctx.drawImage(tmp, k * (W * S + 4), 2 * (H * S + 4), W * S, H * S);
         }
         ctx.fillStyle = '#fff'; ctx.font = '20px monospace'; ctx.fillText(f.line.match(/step +(\d+)/)[1] + ' / ' + f.line.match(/\(\s*([\d.]+)s/)[1] + 's', k * (W * S + 4) + 8, 24);
       });
@@ -126,6 +133,14 @@ export function momOf(m) { return [(m << 16 >> 16) / TUNING.ENERGY_RES, (m >> 16
 export function makePlant(e, color = 0) {
   const f = Math.round(e * TUNING.ENERGY_RES);
   return makeCell(T.PLANT, f & 255, (color & 3) | ((f >> 8) << 2));
+}
+
+// Root distance (half cells) as RGB 0-255: white at 0, through yellow and red to
+// blue at 40 cells, magenta at the cap
+export function distColor(v) {
+  if (v >= 255) return [255, 0, 255];
+  v = Math.min(v / 80, 1);
+  return v < 1 / 3 ? [255, 255, 255 * (1 - v * 3)] : v < 2 / 3 ? [255, 255 * (2 - v * 3), 0] : [255 * (3 - v * 3), 0, 255 * (v * 3 - 2)];
 }
 
 // Mirrors render.wgsl.js closely enough to judge behavior (no CRT effects)

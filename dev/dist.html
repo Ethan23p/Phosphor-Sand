@@ -2,7 +2,7 @@
 <html><head><meta charset="utf-8"><title>dist scenario</title></head>
 <body style="background:#111;color:#ccc;margin:8px;font:12px monospace"><pre id="out">running...</pre>
 <script type="module">
-import { createHarness, blankGrid, fill, T, makeCell, W, H, makePlant, plantE } from './harness.js';
+import { createHarness, blankGrid, fill, T, makeCell, W, H, makePlant, plantE, distColor } from './harness.js';
 // Root distance under a complex growth front. A splotchy block of plant (holes
 // and a ragged top) sits in a stone tray (walls left, right and below) with a
 // pool of water on top. A 1px notch in the right wall lets the pool drain off
@@ -78,7 +78,7 @@ const stats = (a, m) => {
     if (s >= CAP) capped++;
     if (N8.slice(0, 4).some(([dx, dy]) => (a[i + dy * W + dx] & 255) === T.EMPTY)) { tips++; tipD += s; tipT += tr; }
   }
-  snaps.push({ a, m, t });
+  snaps.push({ a, t });
   const pc = k => `${(100 * k / n).toFixed(0)}%`;
   return `plant ${n} avgE ${(e / n).toFixed(0)} water ${w} steam ${st} | stored vs true: mean err ${(err / n / 2).toFixed(1)} cells, too low ${pc(low)}, too high ${pc(high)}, capped ${pc(capped)} | air edge: stored ${(tipD / tips / 2).toFixed(1)} true ${(tipT / tips / 2).toFixed(1)} cells`;
 };
@@ -86,21 +86,19 @@ await h.snapshot(stats, { mom: true });
 for (const s of [45, 90, 180, 360, 720, 1440, 2880, 5400]) { h.run(s - h.step); await h.snapshot(stats, { mom: true }); }
 h.finish('dist: splotchy plant in a stone tray under a slowly draining pool, every plant starting at the distance cap');
 
-// Two more rows: stored root distance, then the true one
+// One more row: the true distance, on the same scale as the stored one above it
 const old = document.getElementById('cv'), S = 2, cv = document.createElement('canvas');
-cv.width = old.width; cv.height = old.height + 2 * (H * S + 4);
+cv.width = old.width; cv.height = old.height + H * S + 4;
 const ctx = cv.getContext('2d'); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cv.width, cv.height); ctx.drawImage(old, 0, 0);
-const ramp = v => v >= CAP ? [255, 0, 255] : (v = Math.min(v / 80, 1), v < 0.33 ? [255, 255, 255 * (1 - v * 3)] : v < 0.66 ? [255, 255 * (1 - (v - 0.33) * 3), 0] : [255 * (1 - (v - 0.66) * 3), 0, 255 * (v - 0.66) * 3]);
 const tmp = document.createElement('canvas'); tmp.width = W; tmp.height = H; ctx.imageSmoothingEnabled = false;
-snaps.forEach(({ a, m, t }, k) => [0, 1].forEach(row => {
+snaps.forEach(({ a, t }, k) => {
   const img = tmp.getContext('2d').createImageData(W, H);
   for (let i = 0; i < W * H; i++) {
-    const o = i * 4, plant = (a[i] & 255) === T.PLANT;
-    const c = plant ? ramp(row ? t[i] : m[2 * i + 1]) : [20, 20, 20];
+    const o = i * 4, c = (a[i] & 255) === T.PLANT ? distColor(t[i]) : [20, 20, 20];
     img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2]; img.data[o + 3] = 255;
   }
   tmp.getContext('2d').putImageData(img, 0, 0);
-  ctx.drawImage(tmp, k * (W * S + 4), old.height + 4 + row * (H * S + 4), W * S, H * S);
-}));
+  ctx.drawImage(tmp, k * (W * S + 4), old.height + 4, W * S, H * S);
+});
 old.replaceWith(cv); cv.id = 'cv';
 </script></body></html>
