@@ -12,7 +12,7 @@ import { createHarness, blankGrid, fill, T, makeCell, W, H, makePlant, plantE, m
 const h = await createHarness();
 const g = blankGrid(), mom = new Uint32Array(2 * W * H);
 const STONE = makeCell(T.STONE, 0, 0), WATER = makeCell(T.WATER, 0, 0);
-const X0 = 8, X1 = W - 4, E0 = 20, SLABS = [[20, 100, 'top'], [150, 230, 'bottom']];
+const X0 = 8, X1 = W - 4, E0 = 6, SLABS = [[20, 100, 'top'], [150, 230, 'bottom']];
 fill(g, 0, W, 0, H, STONE);
 for (const [y0, y1, name] of SLABS) {
   fill(g, 2, X0, y0, y1, WATER);                     // water column

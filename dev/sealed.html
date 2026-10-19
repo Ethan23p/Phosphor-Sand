@@ -12,7 +12,7 @@ const g = blankGrid().fill(makeCell(T.STONE, 0, 0));
 fill(g, 10, 70, 20, 130, makeCell(T.WATER, 0, 0));    // reservoir
 fill(g, 40, 41, 130, 139, makeCell(T.WATER, 0, 0));   // one-cell neck down to the root
 fill(g, 190, 250, 20, 140, 0);                        // far chamber (the only air)
-const put = (x, y) => { g[y * W + x] = makePlant(30); };
+const put = (x, y) => { g[y * W + x] = makePlant(9); };
 for (let x = 40; x <= 196; x++) put(x, 139);          // root under the neck, then the tunnel; the end pokes into the far chamber
 h.load(g);
 const refill = null;

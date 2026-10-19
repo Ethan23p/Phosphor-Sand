@@ -14,9 +14,10 @@ export const T = {
 // "_ODDS: n" means a 1-in-n chance per step. Times assume 3x speed ≈ 180 steps/s.
 export const TUNING = {
   // ── Plant life cycle ──
-  GERM_E: 25,            // a germinated seed starts this full (with room to drink)
+  GERM_E: 8,             // a germinated seed starts this full (with room to drink)
   GERM_ODDS: 32,         // seed touching water sprouts after ~0.2s
-  WATER_GAIN: 6,         // energy per water consumed (about 7 waters fill a cell)
+  WATER_GAIN: 2,         // energy per water consumed (6 waters fill a cell)
+  DRINK_MAX: 3,          // waters a cell can drink in one step (of the up to 3 it shares a block with)
   DRINK_TURN: 5,         // degrees the noise map turns energy as it's drunk (away from the water)
   DRINK_SPREAD: 5,       // plus up to this many degrees of random turn either way
   NOISE_TURN: 45,        // degrees the noise map turns energy bouncing off air or water
@@ -27,9 +28,9 @@ export const TUNING = {
   SOLID_LOSS: 0,         // % lost glancing off stone etc. or a full plant cell...
   DEFLECT_SPREAD: 15,    // ...which turns it 90 degrees (side biased by the noise map), give or take this many
   DAMP: 20,              // per mille of momentum settling into rest each step, scaled up from 0 at the roots to full at BLOOM_DIST
-  PLANT_CAP: 40,         // "full": no more drinking, and arriving energy stays put
-  BLOOM_E: 36,           // energy pushing into open air from a cell this full blooms a new cell there...
-  BLOOM_LOSS: 50,        // ...losing this % of the packet in the transfer...
+  PLANT_CAP: 12,         // "full": no more drinking, and arriving energy stays put
+  BLOOM_E: 10,           // energy pushing into open air from a cell this full blooms a new cell there...
+  BLOOM_LOSS: 25,        // ...losing this % of the packet in the transfer...
   BLOOM_DIST: 20,        // ...certainly this many cells from the roots
   BLOOM_ROOT_ODDS: 4,    //    (and 1 in N at the roots...
   BLOOM_RAMP: 1,         //    ...rising as the distance to this power; 0: no distance gate, any push into air blooms)
@@ -38,7 +39,7 @@ export const TUNING = {
   BLOOM_WATER_ODDS: 64,  // energy pushing into water blooms 1 in N as often; otherwise...
   WATER_DRAIN: 80,       // ...this % of it is lost (the rest reflects)
   ENERGY_RES: 64,        // plant energy is stored in fine units, this many per unit
-  METAB_ODDS: 1280,      // every cell burns 1 energy per ~7s; a full cell lasts ~4.7 min alone
+  METAB_ODDS: 1280,      // every cell burns 1 energy per ~7s; a full cell lasts ~1.4 min alone
   SEED_DROP_ODDS: 16,    // a cell that runs empty leaves a seed instead of empty space
   TRANSPIRE_ODDS: 64,    // 1 in N energy burned is breathed out as steam
 

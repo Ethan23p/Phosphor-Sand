@@ -12,7 +12,7 @@ fill(g, 10, 70, 60, 140, 0);                          // left chamber
 fill(g, 10, 70, 100, 140, makeCell(T.WATER, 0, 0));   // pool
 fill(g, 70, 190, 76, 81, 0);                          // tunnel
 fill(g, 190, 250, 20, 140, 0);                        // right chamber
-const put = (x, y) => { g[y * W + x] = makePlant(30); };
+const put = (x, y) => { g[y * W + x] = makePlant(9); };
 for (let y = 139; y >= 79; y--) put(40, y);           // one end, down in the pool
 for (let x = 40; x <= 196; x++) put(x, 78);           // stem through the tunnel; the other end in the far chamber
 h.load(g);

@@ -36,7 +36,7 @@ for (let y = 120; y < FLOOR; y++) for (let x = X0; x < X1; x++) {
   const i = y * W + x;
   if (y < top(x)) { if (y >= POOL) g[i] = WATER; continue; }
   if (0.6 * vnoise(x, y, 11) + 0.4 * vnoise(x + 99, y, 4) < 0.36) continue; // holes
-  g[i] = makePlant(20, (x * 7 + y * 13) & 3);
+  g[i] = makePlant(6, (x * 7 + y * 13) & 3);
   mom[2 * i + 1] = CAP;
 }
 fill(g, X0, X1, POOL, 120, WATER);

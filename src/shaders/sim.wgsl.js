@@ -323,20 +323,23 @@ fn plant_consume(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<functio
   for (var k = 0u; k < 4u; k = k + 1u) {
     let i = (start + k) & 3u;
     if (gt((*c)[i]) != PLANT) { continue; }
-    let j = find_neighbor(*c, i, WATER, roll(b, i, 31u));
-    if (j == 4u) { continue; }
-    (*d)[i] = 0u; // touching water is a source, full or not
-    let energy = pe((*c)[i]);
-    if (energy + WATER_GAIN * ENERGY_RES > PLANT_CAP * ENERGY_RES) { continue; }
-    let away = vec2f(f32(i & 1u) - f32(j & 1u), f32(i >> 1u) - f32(j >> 1u));
-    let a = atan2(away.y, away.x) + plant_turn(b, i, 32u, DRINK_TURN, DRINK_SPREAD);
-    let u = vec2f(cos(a), sin(a));
-    let ad = abs(u);
-    let g = f32(WATER_GAIN * ENERGY_RES) / (max(ad.x, ad.y) + (RT2 - 1.0) * min(ad.x, ad.y));
-    let ne = energy + WATER_GAIN * ENERGY_RES;
-    (*m)[i] = clamp_mom((*m)[i] + vec2i(round(u * g)), ne);
-    (*c)[i] = mp(ne, gv((*c)[i]));
-    (*c)[j] = 0u;
+    // up to DRINK_MAX of the water cells it touches in this block, one at a time
+    for (var n = 0u; n < DRINK_MAX; n = n + 1u) {
+      let j = find_neighbor(*c, i, WATER, roll(b, i, 31u + 50u * n));
+      if (j == 4u) { break; }
+      (*d)[i] = 0u; // touching water is a source, full or not
+      let energy = pe((*c)[i]);
+      if (energy + WATER_GAIN * ENERGY_RES > PLANT_CAP * ENERGY_RES) { break; }
+      let away = vec2f(f32(i & 1u) - f32(j & 1u), f32(i >> 1u) - f32(j >> 1u));
+      let a = atan2(away.y, away.x) + plant_turn(b, i, 32u + 50u * n, DRINK_TURN, DRINK_SPREAD);
+      let u = vec2f(cos(a), sin(a));
+      let ad = abs(u);
+      let g = f32(WATER_GAIN * ENERGY_RES) / (max(ad.x, ad.y) + (RT2 - 1.0) * min(ad.x, ad.y));
+      let ne = energy + WATER_GAIN * ENERGY_RES;
+      (*m)[i] = clamp_mom((*m)[i] + vec2i(round(u * g)), ne);
+      (*c)[i] = mp(ne, gv((*c)[i]));
+      (*c)[j] = 0u;
+    }
   }
 }
 
