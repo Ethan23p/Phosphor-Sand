@@ -23,7 +23,7 @@ To run one headlessly:
 - Use playwright-core with the installed Chrome: `executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe'`, `args: ['--enable-unsafe-webgpu']`.
 - Wait until `#out` no longer says `running...`, then read `#out` and screenshot `#cv`.
 - Print every snapshot line as it lands and keep a hard timeout of a couple of minutes; run at most about 4 pages at once.
-- Any page takes tuning overrides in its query string, e.g. `/dev/trickle.html?BLOOM_RAMP=3`, for sweeps without editing `config.js`.
+- Any page takes tuning overrides in its query string, e.g. `/dev/trickle.html?BLOOM_NEAR=300`, for sweeps without editing `config.js`.
 - Keep that script in the scratchpad, not the repo.
 
 Expectations for sim changes:

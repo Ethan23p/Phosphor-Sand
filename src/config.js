@@ -29,17 +29,16 @@ export const TUNING = {
   DEFLECT_SPREAD: 15,    // ...which turns it 90 degrees (side biased by the noise map), give or take this many
   DAMP: 20,              // per mille of momentum settling into rest each step, scaled up from 0 at the roots to full at BLOOM_DIST
   PLANT_CAP: 12,         // "full": no more drinking, and arriving energy stays put
-  BLOOM_E: 10,           // energy pushing into open air from a cell this full blooms a new cell there...
+  BLOOM_E: 6,            // energy pushing into open air from a cell this full blooms a new cell there...
   BLOOM_LOSS: 25,        // ...losing this % of the packet in the transfer...
-  BLOOM_DIST: 20,        // ...certainly this many cells from the roots
-  BLOOM_ROOT_ODDS: 4,    //    (and 1 in N at the roots...
-  BLOOM_RAMP: 1,         //    ...rising as the distance to this power; 0: no distance gate, any push into air blooms)
+  BLOOM_DIST: 20,        // ...certainly this many cells from the roots...
+  BLOOM_NEAR: 100,       // ...and this per mille as often at the roots, rising smoothly between (1000: no gate)
   THICK_ADULT: 4,        //    (the distance gate only applies to plants that have been this many cells thick)
   DIST_CREEP_ODDS: 8,    // root distance creeps up 1/N per step unless confirmed
   BLOOM_WATER_ODDS: 64,  // energy pushing into water blooms 1 in N as often; otherwise...
   WATER_DRAIN: 80,       // ...this % of it is lost (the rest reflects)
   ENERGY_RES: 64,        // plant energy is stored in fine units, this many per unit
-  METAB_ODDS: 1280,      // every cell burns 1 energy per ~7s; a full cell lasts ~1.4 min alone
+  METAB_ODDS: 3840,      // every cell burns 1 energy per ~21s; a full cell lasts ~4.3 min alone
   SEED_DROP_ODDS: 16,    // a cell that runs empty leaves a seed instead of empty space
   TRANSPIRE_ODDS: 64,    // 1 in N energy burned is breathed out as steam
 

@@ -8,7 +8,7 @@ export { T, makeCell };
 export const W = GRID_W, H = GRID_H, N = W * H;
 const NAMES = Object.fromEntries(Object.entries(T).map(([k, v]) => [v, k]));
 
-// Tuning overrides from the page's query string, e.g. waterfall.html?BLOOM_RAMP=4,
+// Tuning overrides from the page's query string, e.g. waterfall.html?BLOOM_NEAR=300,
 // for sweeps without editing config.js: applied to TUNING (for the JS side) and
 // to the sim shader's consts, and noted in the strip's title
 export const OVERRIDES = Object.fromEntries([...new URLSearchParams(location.search)].filter(([k]) => k in TUNING).map(([k, v]) => [k, +v]));

@@ -542,16 +542,14 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, 
 }
 
 // Chance that a push into air from a cell this far from the roots (in half
-// cells) blooms: 1 in BLOOM_ROOT_ODDS at the roots, rising as a power
-// BLOOM_RAMP curve to certain at BLOOM_DIST cells. A soft gate, so a plant
-// sitting in water still grows, just rarely. Always for a plant that has never
-// been THICK_ADULT cells thick (k: thickness, see plant_thick), or with
-// BLOOM_RAMP 0.
+// cells) blooms: BLOOM_NEAR per mille at the roots (the allowance: 0 never,
+// 1000 no gate), rising smoothly to certain at BLOOM_DIST cells. Always for a
+// plant that has never been THICK_ADULT cells thick (k: thickness, see
+// plant_thick).
 fn bloom_odds(d: u32, k: u32) -> f32 {
-  if (BLOOM_RAMP == 0u || (k >> 8u) < 2u * THICK_ADULT) { return 1.0; }
-  let lo = 1.0 / f32(BLOOM_ROOT_ODDS);
-  let x = clamp(f32(d) / f32(2u * BLOOM_DIST), 0.0, 1.0);
-  return mix(lo, 1.0, pow(x, f32(BLOOM_RAMP)));
+  if ((k >> 8u) < 2u * THICK_ADULT) { return 1.0; }
+  let x = smoothstep(0.0, f32(2u * BLOOM_DIST), f32(d));
+  return mix(f32(BLOOM_NEAR) / 1000.0, 1.0, x);
 }
 
 fn tick_plant(cin: Cells, m: ptr<function, Moms>, d: ptr<function, Dists>, i:u32, b: Block) -> Cells {
