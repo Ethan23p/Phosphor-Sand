@@ -13,18 +13,12 @@ Phosphor Sand is a WebGPU falling-sand toy. It's plain ES modules with no build 
 
 ## Testing: dev scenarios
 
-There's no unit test suite. Behavior is verified by running the real shaders on the GPU:
-- `dev/*.html` pages (`flow`, `dist`, `waterfall`, `trickle`, `reservoir`, `tunnel`, `sealed`, `pool`, `garden`, `elements`) script an initial grid and brush input with `dev/harness.js`.
-- `createHarness({ wgsl, extra })` runs a modified sim shader with extra bind group entries. Use it for temporary instrumentation, e.g. atomic counters at binding 5, and don't commit those probe pages.
-- Each page renders a time-lapse strip into `#cv` and per-snapshot stats into `#out`. `h.snapshot(stats, { mom: true })` also keeps the plant buffer (passed to `stats` as its second argument) and adds rows showing moving energy, root distance and age (bright: young cell; green: grown plant, orange: seedling); `h.load(g, mom)` can start from a given plant buffer (e.g. preset root distances).
-- Open one through the server, e.g. `/dev/garden.html`.
-
-To run one headlessly:
-- Use playwright-core with the installed Chrome: `executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe'`, `args: ['--enable-unsafe-webgpu']`.
-- Wait until `#out` no longer says `running...`, then read `#out` and screenshot `#cv`.
-- Print every snapshot line as it lands and keep a hard timeout of a couple of minutes; run at most about 4 pages at once.
-- Any page takes tuning overrides in its query string, e.g. `/dev/trickle.html?BLOOM_NEAR=300`, for sweeps without editing `config.js`.
-- Keep that script in the scratchpad, not the repo.
+There's no unit test suite. Behavior is verified by running the real shaders on the GPU. See `dev/README.md` for the full workflow.
+- `node dev/strip.mjs plants` runs the plant suite (`waterfall`, `pipe`, `tunnel`, `reservoir`, `meadow`, every variant; about 30 s). Name a scenario, `scenario/variant` or `page.html` to run less. Add `NAME=value` tuning overrides for sweeps and `--tag` to name the files.
+- It prints each snapshot as it lands and ends with a PASS/FAIL table from each scenario's checks. Strips (`.png`, headed by the scenario's intent) and stats (`.txt`) land in `dev/out/` (gitignored).
+- A scenario is a module in `dev/scenarios/` with `intent`, `expect`, `variants`, `build`, `input`, `regions` and `checks`. Run through `dev/scenario.html` and `dev/scenario.js`, it imports nothing browser-side.
+- `createHarness({ wgsl, extra })` (`dev/harness.js`) runs a modified sim shader with extra bind group entries. Use it for temporary instrumentation, e.g. atomic counters at binding 5, and don't commit those probe pages.
+- Strip rows: cells, moving energy, root distance, age (bright: young cell; green: grown plant, orange: seedling).
 
 Expectations for sim changes:
 - After any sim or tuning change, run the relevant scenarios and actually look at the screenshot strips. The user wants to see them.
@@ -59,7 +53,8 @@ Expectations for sim changes:
 - Use the accessors `gt`, `gd`, `gv` and the constructor `mc` from `common.wgsl.js`; `makeCell` is the JS equivalent.
 - Plant energy is 14 bits in fine units (`ENERGY_RES` per tuning unit): `data` holds the low 8, variant bits 2-7 the high 6. Use `pe`/`mp` (JS: `plantE`/`makePlant` in the harness).
 - Plant momentum and root distance share a second ping-ponged buffer (sim bindings 3 and 4, `vec2u` per cell): `.x` is signed 16-bit momentum x and y (`unpack_mom`/`pack_mom`; JS `momOf`), `.y` the root distance in half cells (bits 0-7), and the age (bits 8-15 the cell's own, 16-23 the plant's); mask with `& 255` to read each. `h.read(true)` returns them interleaved. `main` loads them into `m`/`dist` for plant slots and writes zero for every other cell, so a new plant always starts at rest; a sprouting seed gets distance 0, a bloomed cell its parent's + 2, age 0 and its parent's plant age.
-- Plant tick order: `plant_consume` → `plant_flow` (transfer and bloom) → `plant_dist` → `plant_age` (all for the whole block, right after `movement`) → `tick_plant` (retire by age, friction).
+- Plant tick order: `plant_consume` → `plant_flow` (pressure and viscosity via `plant_press`, then transfer, mirror bounces and bloom) → `plant_dist` → `plant_age` (all for the whole block, right after `movement`) → `tick_plant` (retire by age, friction).
+- Plant energy is a wave medium (pressure pushes momentum, momentum carries energy). Energy may only leave or enter at clean seams: drinking (water → energy), building a cell (one water's worth → structure) and retirement (structure → steam or seed). Friction, viscosity and bounces only slow energy; they never destroy it.
 
 **Brush** (`brush.wgsl.js`):
 - It's a GPU capsule stamp that edits the current grid in place. It only fills empty cells; the eraser clears all.

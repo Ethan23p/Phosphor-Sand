@@ -20,26 +20,25 @@ export const TUNING = {
   DRINK_MAX: 3,          // waters a cell can drink in one step (of the up to 3 it shares a block with)
   DRINK_TURN: 5,         // degrees the noise map turns energy as it's drunk (away from the water)
   DRINK_SPREAD: 5,       // plus up to this many degrees of random turn either way
-  NOISE_TURN: 45,        // degrees the noise map turns energy bouncing off air or water
-  SPREAD: 30,            // plus up to this many degrees of random turn either way
-  AIR_LOSS: 60,          // % of momentum lost bouncing off open air at BLOOM_DIST cells out (none at the roots)
-  WATER_LOSS: 10,        // % of momentum lost bouncing off water
-  CRADLE: 0,             // 1: a packet arriving at a plant cell with at least its energy passes on its momentum, not its energy (Newton's cradle)
-  SOLID_LOSS: 0,         // % lost glancing off stone etc....
-  DEFLECT_SPREAD: 15,    // ...which turns it 90 degrees (side biased by the noise map), give or take this many
-  DAMP: 5,               // per mille of moving energy lost to friction each step, scaled up from 0 at the roots to full at BLOOM_DIST
+  NOISE_TURN: 20,        // degrees the noise map turns energy bouncing off air or water
+  SPREAD: 15,            // plus up to this many degrees of random turn either way
+  PRESS: 20,             // % of the energy difference between neighbors that pushes momentum each step (wave stiffness)
+  VISC: 60,              // % each cell's momentum relaxes toward its block's average each step (viscosity: streams, not sloshing)
+  AIR_LOSS: 10,          // % of momentum lost bouncing off open air (the energy stays, at rest)
+  WATER_LOSS: 10,        // % of momentum lost bouncing off water (likewise)
+  DAMP: 5,               // per mille of moving energy that comes to rest each step (friction; pressure moves it again)
   PLANT_GLOW: 12,        // a plant cell with this much energy renders at full brightness (cells store up to 255)
   BLOOM_E: 3,            // energy pushing into open air from a cell this full blooms a new cell there...
-  BLOOM_LOSS: 25,        // ...losing this % of the packet in the transfer...
+  BLOOM_TIP: 50,         // ...per mille as often where the new cell would touch only its parent (keeps fronts thick)...
+  //                        (building it takes WATER_GAIN: one water's worth, returned as steam when it retires)
   BLOOM_DIST: 20,        // ...certainly this many cells from the roots...
   BLOOM_NEAR: 1,         // ...and this per mille as often at the roots, rising smoothly between (1000: no gate)
   GROWN_AGE: 4,          //    (the distance gate only applies to plants this old in age steps, ~3s; see AGE_ODDS)
   DIST_CREEP_ODDS: 8,    // root distance creeps up 1/N per step unless confirmed
-  BLOOM_WATER_ODDS: 64,  // energy pushing into water blooms 1 in N as often; otherwise...
-  WATER_DRAIN: 80,       // ...this % of it is lost (the rest reflects)
+  BLOOM_WATER_ODDS: 64,  // energy pushing into water blooms 1 in N as often
   ENERGY_RES: 64,        // plant energy is stored in fine units, this many per unit
   AGE_ODDS: 128,         // a cell ages 1/N per step and retires at 255: lives ~3 min
-  SEED_DROP_ODDS: 16,    // a retiring cell leaves a seed 1 in N times (else steam, if it holds a water's worth)
+  SEED_DROP_ODDS: 16,    // a retiring cell leaves a seed 1 in N times (else steam); its energy goes to a neighbor
 
   // ── Fire, water, steam ──
   IGNITE_ODDS: 8,        // fire's chance per step to ignite plants/seeds in its block
