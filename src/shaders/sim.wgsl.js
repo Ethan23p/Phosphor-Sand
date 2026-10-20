@@ -66,15 +66,20 @@ fn noise_variant(cx:u32, cy:u32) -> u32 {
 
 // ─── HELPERS ───
 fn heavy(c:u32) -> bool { let t = gt(c); return t == SAND || t == SEED || t == EMBER; }
-fn fl(c:u32) -> bool { return heavy(c) || gt(c) == WATER; }
 fn em(c:u32) -> bool { return gt(c) == EMPTY; }
 fn lq(c:u32) -> bool { return gt(c) == WATER; }
+// Liquids (water, oil) move alike (see fall, flow); lq is water alone
+fn liq(c:u32) -> bool { let t = gt(c); return t == WATER || t == OIL; }
+fn fl(c:u32) -> bool { return heavy(c) || liq(c); }
 fn is_fire(c:u32) -> bool { return gt(c) == FIRE; }
-// Can mover fall into dest? Heavy particles sink through water only when
-// this block's sink bit is set (~half the steps), so they sink at half speed.
+// Can mover fall into dest? Heavy particles sink through liquid, and water
+// through oil (oil floats), only when this block's sink bit is set (~half the
+// steps), so they sink at half speed. Seeds float on water but sink in oil.
 fn disp(mover:u32, dest:u32, sink:bool) -> bool {
   if (em(dest)) { return true; }
-  return sink && heavy(mover) && gt(mover) != SEED && lq(dest);
+  if (!sink) { return false; }
+  if (gt(dest) == OIL) { return heavy(mover) || lq(mover); }
+  return heavy(mover) && gt(mover) != SEED && lq(dest);
 }
 
 // Motion state of a loose cell (sand, water, seed, ember), in the variant bits
@@ -103,9 +108,9 @@ fn fall(c: ptr<function, Cells>, i:u32, b: Block, sink:bool) {
   if (disp(a, (*c)[j], sink)) {
     var nv = max(v, 1u);
     if (nv < 7u && (roll(b, i, 70u) % FALL_ACCEL_ODDS) == 0u) { nv += 1u; }
-    if (lq((*c)[j]) && !lq(a)) { nv = 1u; }
-    let moved = motion(a, nv, side_r(a), select(0u, skid_v(a), lq(a)));   // water keeps its sideways momentum (see flow)
-    if (lq(a) || (roll(b, i, 71u) % (FALL_START + 7u)) < FALL_START + v) { (*c)[i] = (*c)[j]; (*c)[j] = moved; }
+    if (liq((*c)[j])) { nv = 1u; }
+    let moved = motion(a, nv, side_r(a), select(0u, skid_v(a), liq(a)));   // liquid keeps its sideways momentum (see flow)
+    if (liq(a) || (roll(b, i, 71u) % (FALL_START + 7u)) < FALL_START + v) { (*c)[i] = (*c)[j]; (*c)[j] = moved; }
     else { (*c)[i] = moved; }
   } else if (lq(a) && v >= 3u && gt((*c)[j]) == SAND && fall_v((*c)[j]) == 0u && (roll(b, i, 75u) % ERODE_ODDS) == 0u) {
     // Fast water hitting sand splashes a grain up and aside (the water digs in):
@@ -116,7 +121,7 @@ fn fall(c: ptr<function, Cells>, i:u32, b: Block, sink:bool) {
     // a grain resting on one still falling keeps pace with it (water lands at
     // once, so a body of water is never all marked as falling and can flow)
     let below = (*c)[j];
-    if (!lq(a) && fl(below) && fall_v(below) > 0u) { (*c)[i] = motion(a, min(v, fall_v(below)), side_r(a), 0u); return; }
+    if (!liq(a) && fl(below) && fall_v(below) > 0u) { (*c)[i] = motion(a, min(v, fall_v(below)), side_r(a), 0u); return; }
     var skid = skid_v(a);
     if (heavy(a)) { skid = min((v + 1u) / 2u, 3u); }
     (*c)[i] = motion(a, 0u, side_r(a), skid);   // keeps its direction: water poured down a slope keeps going
@@ -160,9 +165,12 @@ fn skid(c: ptr<function, Cells>, i:u32) {
 // it keeps as it falls, one cell a move: water running off a ledge arcs out
 // instead of hugging the wall. Water falling with none (rain, drips, pours)
 // falls straight, so streams don't spray.
+//
+// Oil flows the same way at 1 in OIL_FLOW_ODDS steps (it's thick).
 fn flow(c: ptr<function, Cells>, i:u32, b: Block) {
   let a = (*c)[i];
-  if (!lq(a)) { return; }
+  if (!liq(a)) { return; }
+  if (gt(a) == OIL && (roll(b, i, 80u) % OIL_FLOW_ODDS) != 0u) { return; }
   let falling = fall_v(a) > 0u;
   if (falling && skid_v(a) == 0u) { return; }
   let left = (i & 1u) == 0u;
@@ -176,21 +184,21 @@ fn flow(c: ptr<function, Cells>, i:u32, b: Block) {
     // water drops into its place), with the stream's momentum; the grain is
     // carried over the edge (see skid) and settles downhill. So streams cut
     // back into sand and wear channels, and the sand builds up where they slow.
-    if (i < 2u && gt((*c)[i + 2u]) == SAND && (em((*c)[j + 2u]) || lq((*c)[j + 2u]))
+    if (i < 2u && lq(a) && gt((*c)[i + 2u]) == SAND && (em((*c)[j + 2u]) || lq((*c)[j + 2u]))
         && (roll(b, i, 74u) % ERODE_ODDS) == 0u) {
       (*c)[i] = motion((*c)[i + 2u], 0u, side_r(a), 3u);
       (*c)[i + 2u] = (*c)[j];
       (*c)[j] = 0u;
     }
-  } else if (!lq((*c)[j]) || (roll(b, i, 73u) % FLOW_TURN_ODDS) == 0u) {
+  } else if (!liq((*c)[j]) || (roll(b, i, 73u) % FLOW_TURN_ODDS) == 0u) {
     (*c)[i] = motion(a, fall_v(a), !side_r(a), select(0u, skid_v(a), !falling));
   }
 }
 
 fn gas(c:u32) -> bool { let t = gt(c); return t == SMOKE || t == STEAM; }
 // Gases rise into empty space; steam also bubbles up through water
-fn rises_into(g:u32, above:u32) -> bool { return em(above) || (gt(g) == STEAM && lq(above)); }
-fn burns(c:u32) -> bool { let t = gt(c); return t == PLANT || t == SEED; }
+fn rises_into(g:u32, above:u32) -> bool { return em(above) || (gt(g) == STEAM && liq(above)); }
+fn burns(c:u32) -> bool { let t = gt(c); return t == PLANT || t == SEED || t == OIL; }
 fn sw(cells: ptr<function, Cells>, a:u32, b:u32) {
   let tmp = (*cells)[a]; (*cells)[a] = (*cells)[b]; (*cells)[b] = tmp;
 }
@@ -302,6 +310,8 @@ fn tick_fire(cin: Cells, i:u32, b: Block) -> Cells {
         var fl_life = 0u;
         if (gt(c[j]) == PLANT) {
           fl_life = pe(c[j]) / ENERGY_RES / 3u + 20u; // plant energy → fire life
+        } else if (gt(c[j]) == OIL) {
+          fl_life = OIL_FIRE_LIFE + (roll(b, j, 14u) % 40u);
         } else {
           fl_life = 50u + (roll(b, j, 14u) % 40u);
         }
@@ -712,6 +722,12 @@ fn tick_ember(cin: Cells, i:u32, b: Block) -> Cells {
       else { c[i] = mc(EMBER, elife - EMBER_QUENCH, gv(c[i])); }
       return c;
     }
+  }
+
+  // Ignite: touching oil sets it alight
+  if ((roll(b, i, 90u) % IGNITE_ODDS) == 0u) {
+    let j = find_neighbor(c, i, OIL, roll(b, i, 91u));
+    if (j < 4u) { c[j] = mc(FIRE, OIL_FIRE_LIFE + (roll(b, j, 92u) % 40u), roll(b, j, 93u) & 3u); }
   }
 
   // Flare: spawn a short-lived spark in a random empty neighbor (~1/128 per step)

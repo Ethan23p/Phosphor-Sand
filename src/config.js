@@ -7,7 +7,7 @@ export const WORKGROUP = 16;
 // Particle type IDs. Emitted into WGSL as `const SAND:u32 = 1u;` etc.
 export const T = {
   EMPTY: 0, SAND: 1, WATER: 2, STONE: 3, FIRE: 4,
-  SMOKE: 5, PLANT: 6, SEED: 7, EMBER: 8, STEAM: 9,
+  SMOKE: 5, PLANT: 6, SEED: 7, EMBER: 8, STEAM: 9, OIL: 10,
 };
 
 // Simulation tuning. Emitted into WGSL as u32 consts.
@@ -46,6 +46,7 @@ export const TUNING = {
   ROLL_V: 4,             // a grain rolling off a slope leaves at least this fast (of 7)
   FLOW_TURN_ODDS: 4,     // water flowing into other water turns around 1 in N times (at a wall, always)
   SPILL: 3,              // cells (of 3) of sideways momentum flowing water carries off a ledge as it falls
+  OIL_FLOW_ODDS: 3,      // oil flows sideways 1 in N steps (it's thick); it floats on water
   ERODE_ODDS: 8,         // water running over sand (or falling hard onto it) kicks up a grain 1 in N times
 
   // ── Fire, water, steam ──
@@ -57,6 +58,7 @@ export const TUNING = {
   EMBER_QUENCH: 50,      // lifetime an ember loses each time it boils a water cell
   FIRE_RISE_COST: 4,     // extra lifetime lost when fire rises
   SMOKE_TRAIL_LIFE: 18,  // lifetime of smoke left by rising fire
+  OIL_FIRE_LIFE: 90,     // burning oil: fire life this plus up to 40 (fire or embers touching oil set it alight)
 };
 
 // ── Palette ──
@@ -68,7 +70,7 @@ export const P = {
   peach:[.953,.655,.529], sand:[.961,.855,.655], lightGreen:[.553,.847,.580],
   medGreen:[.365,.757,.565], tealGreen:[.290,.725,.639], darkTeal:[.271,.576,.647],
   brightCyan:[.369,.992,.969], hotPink:[1,.365,.8], brightYellow:[.992,.996,.537],
-  white:[1,1,1], mist:[.722,.784,.863],
+  white:[1,1,1], mist:[.722,.784,.863], amber:[.706,.475,.255], darkAmber:[.522,.333,.212],
 };
 
 // Up to 4 color variants per type (cycled if fewer). Indexed by type ID.
@@ -83,6 +85,7 @@ export const CMAP = {
   [T.SEED]:  [P.magenta, P.purple],
   [T.EMBER]: [P.peach, P.pink, P.sand, P.hotPink],
   [T.STEAM]: [P.mist, P.lightBlue],
+  [T.OIL]:   [P.amber, P.darkAmber],
 };
 
 // Toolbar brushes, in display order. Swatch = first color of the type.
@@ -91,6 +94,7 @@ export const TOOLS = [
   { type: T.SAND,  title: 'Sand',   density: 160 },
   { type: T.WATER, title: 'Water',  density: 160 },
   { type: T.STONE, title: 'Stone',  density: 256 },
+  { type: T.OIL,   title: 'Oil',    density: 160 },
   { type: T.FIRE,  title: 'Fire',   density: 200 },
   { type: T.SEED,  title: 'Seed',   density: 40 },
   { type: T.EMBER, title: 'Ember',  density: 90 },
