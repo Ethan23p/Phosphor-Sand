@@ -86,7 +86,7 @@ export async function createHarness({ wgsl = simWGSL, extra = [] } = {}) {
       await rb.mapAsync(GPUMapMode.READ, 0, n); const a = new Uint32Array(rb.getMappedRange(0, n)).slice(); rb.unmap(); return a;
     },
     // With mom = true the plant buffer is kept too, statsFn gets it as its second
-    // argument, and finish draws three more rows: moving energy, root distance, then thickness
+    // argument, and finish draws three more rows: moving energy, root distance, then age
     async snapshot(statsFn = stats, { mom = false } = {}) {
       const a = await this.read(), m = mom ? await this.read(true) : null;
       const line = `step ${String(step).padStart(5)} (${(step / 180).toFixed(1).padStart(5)}s @3x): ${statsFn(a, m)}`;
@@ -126,12 +126,12 @@ export async function createHarness({ wgsl = simWGSL, extra = [] } = {}) {
           }
           tmp.getContext('2d').putImageData(img, 0, 0);
           ctx.drawImage(tmp, k * (W * S + 4), 2 * (H * S + 4), W * S, H * S);
-          // thickness: a cell's own (brightness), green for a grown plant
-          // (thick enough for the distance gate), orange for a seedling
+          // age: a cell's own (bright when young, dim near retirement), green
+          // for a grown plant (old enough for the distance gate), orange for a seedling
           for (let i = 0; i < N; i++) {
             const o = i * 4, y = f.m[2 * i + 1];
             if ((f.a[i] & 255) !== T.PLANT) { img.data[o] = img.data[o + 1] = img.data[o + 2] = 20; continue; }
-            const v = 0.35 + 0.65 * Math.min(((y >> 8) & 255) / (4 * TUNING.THICK_ADULT), 1), grown = ((y >> 16) & 255) >= 2 * TUNING.THICK_ADULT;
+            const v = 1 - 0.7 * ((y >> 8) & 255) / 255, grown = ((y >> 16) & 255) >= TUNING.GROWN_AGE;
             img.data[o] = (grown ? 60 : 255) * v; img.data[o + 1] = (grown ? 230 : 140) * v; img.data[o + 2] = (grown ? 90 : 20) * v;
           }
           tmp.getContext('2d').putImageData(img, 0, 0);

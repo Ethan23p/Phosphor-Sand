@@ -366,30 +366,23 @@ fn plant_dist(c: Cells, d: ptr<function, Dists>, b: Block) {
   *d = nd;
 }
 
-// Thickness, in half cells like root distance, capped at DIST_CAP. Bits 0-7: a
-// cell's distance to the nearest cell that isn't plant, relaxed the same way
-// as root distance but with every non-plant cell as a source (and creeping up,
-// so it rises as the plant grows around it). Bits 8-15: the plant's thickness,
-// the most any cell of the plant has reached, passed through the plant and
-// never lowered. A seedling or a thin tendril stays thin; once any part of a
-// plant has been THICK_ADULT cells thick, every cell of it counts as grown.
-fn plant_thick(c: Cells, k: ptr<function, Dists>, b: Block) {
+// Age. Bits 0-7: the cell's own age, rising 1 in AGE_ODDS steps (it retires at
+// 255, see tick_plant). Bits 8-15: the plant's age, the oldest any of its cells
+// has been, passed through the plant and never lowered. A new cell starts at 0
+// but takes its parent's plant age, so a plant younger than GROWN_AGE is a
+// seedling, and every new tendril of an older plant counts as grown.
+fn plant_age(c: Cells, k: ptr<function, Dists>, b: Block) {
   var nk: Dists;
   for (var i = 0u; i < 4u; i = i + 1u) {
     nk[i] = 0u;
     if (gt(c[i]) != PLANT) { continue; }
-    var t = (*k)[i] & 255u;
-    var big = ((*k)[i] >> 8u) & 255u;
-    var age = (*k)[i] >> 16u;
-    if ((roll(b, i, 70u) % DIST_CREEP_ODDS) == 0u) { t = min(t + 1u, DIST_CAP); }
+    var age = (*k)[i] & 255u;
     if ((roll(b, i, 71u) % AGE_ODDS) == 0u) { age = min(age + 1u, 255u); }
+    var old = max((*k)[i] >> 8u, age);
     for (var j = 0u; j < 4u; j = j + 1u) {
-      if (j == i) { continue; }
-      let s = select(2u, 3u, (i ^ j) == 3u);
-      if (gt(c[j]) != PLANT) { t = min(t, s); }
-      else { t = min(t, ((*k)[j] & 255u) + s); big = max(big, ((*k)[j] >> 8u) & 255u); }
+      if (j != i && gt(c[j]) == PLANT) { old = max(old, (*k)[j] >> 8u); }
     }
-    nk[i] = t | (max(big, t) << 8u) | (age << 16u);
+    nk[i] = age | (old << 8u);
   }
   *k = nk;
 }
@@ -484,7 +477,7 @@ fn plant_flow(c: ptr<function, Cells>, m: ptr<function, Moms>, d: ptr<function, 
           && f32(roll(b, i, 60u + j) & 0xFFFFFFu) / 16777216.0 < bloom_odds((*d)[i], (*k)[i])) {
         (*c)[j] = mp(0u, noise_variant(cell_x(b.bx, j), cell_y(b.by, j)));
         (*d)[j] = min((*d)[i] + select(2u, 3u, (i ^ j) == 3u), DIST_CAP);
-        (*k)[j] = 2u | ((*k)[i] & 0xFF00u); // on the edge, in the parent's plant
+        (*k)[j] = (*k)[i] & 0xFF00u; // newborn, in the parent's plant
         e1[i] -= i32(en); e1[j] += i32(kept);
         m1[i] -= q; m1[j] += vec2i(vec2f(q) * (f32(kept) / f32(en)));
       } else if (tj == WATER) {
@@ -569,15 +562,14 @@ fn all_moving(v: vec2i, e: u32, fallback: vec2i, b: Block, i: u32) -> vec2i {
 // Chance that a push into air from a cell this far from the roots (in half
 // cells) blooms: BLOOM_NEAR per mille at the roots (the allowance: 0 never,
 // 1000 no gate), rising smoothly to certain at BLOOM_DIST cells. Always for a
-// plant that has never been THICK_ADULT cells thick (k: thickness, see
-// plant_thick).
+// plant younger than GROWN_AGE (k: age, see plant_age).
 // The most energy a plant cell can store (14 bits of fine units). Plants have
 // no other capacity: they drink while there is water, and energy passes
 // through them freely.
 const E_MAX: u32 = 16383u;
 
 fn bloom_odds(d: u32, k: u32) -> f32 {
-  if (((k >> 8u) & 255u) < 2u * THICK_ADULT) { return 1.0; }
+  if ((k >> 8u) < GROWN_AGE) { return 1.0; }
   let x = smoothstep(0.0, f32(2u * BLOOM_DIST), f32(d));
   return mix(f32(BLOOM_NEAR) / 1000.0, 1.0, x);
 }
@@ -587,11 +579,11 @@ fn tick_plant(cin: Cells, m: ptr<function, Moms>, d: ptr<function, Dists>, k: pt
   var energy = pe(c[i]);
   let color = gv(c[i]) & 3u;
 
-  // Decay: a cell retires once its age (see plant_thick) runs out, about
+  // Decay: a cell retires once its age (see plant_age) runs out, about
   // 255 * AGE_ODDS steps after it grew, whatever energy it holds. It sometimes
   // leaves a seed; otherwise, if it holds a water's worth of energy, it is
   // breathed out as steam (the rest is lost), and if not it's just gone.
-  if (((*k)[i] >> 16u) >= 255u) {
+  if (((*k)[i] & 255u) >= 255u) {
     if ((roll(b, i, 35u) % SEED_DROP_ODDS) == 0u) { c[i] = mc(SEED, 0u, roll(b, i, 36u) & 3u); }
     else if (energy >= WATER_GAIN * ENERGY_RES) { c[i] = steam_cell(roll(b, i, 38u)); }
     else { c[i] = 0u; }
@@ -727,20 +719,20 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   // Plants never move, so a plant's momentum stays in its slot
   var m: Moms;
   var dist: Dists;
-  var thk: Dists;
+  var age: Dists;
   for (var k = 0u; k < 4u; k = k + 1u) {
-    m[k] = vec2i(0, 0); dist[k] = DIST_CAP; thk[k] = 0u;
+    m[k] = vec2i(0, 0); dist[k] = DIST_CAP; age[k] = 0u;
     if (gt(c[k]) == PLANT) {
       let ps = mi[idx(bx + (k & 1u), by + (k >> 1u))];
-      m[k] = unpack_mom(ps.x); dist[k] = ps.y & 255u; thk[k] = ps.y >> 8u;
+      m[k] = unpack_mom(ps.x); dist[k] = ps.y & 255u; age[k] = ps.y >> 8u;
     }
   }
 
   c = movement(c, b.rng);
   plant_consume(&c, &m, &dist, b);
-  plant_flow(&c, &m, &dist, &thk, b);
+  plant_flow(&c, &m, &dist, &age, b);
   plant_dist(c, &dist, b);
-  plant_thick(c, &thk, b);
+  plant_age(c, &age, b);
 
   // Visit cells starting from a random slot so no position always acts first
   let start = hh(b.rng ^ 0x5bd1e995u) & 3u;
@@ -750,14 +742,14 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (t == FIRE)       { c = tick_fire(c, i, b); }
     else if (t == SMOKE) { c = tick_smoke(c, i); }
     else if (t == STEAM) { c = tick_steam(c, i, b); }
-    else if (t == SEED)  { c = tick_seed(c, i, b); dist[i] = 0u; thk[i] = 0u; } // a sprout is a root, and thin
-    else if (t == PLANT) { c = tick_plant(c, &m, &dist, &thk, i, b); }
+    else if (t == SEED)  { c = tick_seed(c, i, b); dist[i] = 0u; age[i] = 0u; } // a sprout is a root, and a newborn plant
+    else if (t == PLANT) { c = tick_plant(c, &m, &dist, &age, i, b); }
     else if (t == EMBER) { c = tick_ember(c, i, b); }
   }
 
   c = convection(c, b);
 
   go[idx(x, y)] = c[pos];
-  mo[idx(x, y)] = select(vec2u(0u), vec2u(pack_mom(m[pos]), dist[pos] | (thk[pos] << 8u)), gt(c[pos]) == PLANT);
+  mo[idx(x, y)] = select(vec2u(0u), vec2u(pack_mom(m[pos]), dist[pos] | (age[pos] << 8u)), gt(c[pos]) == PLANT);
 }
 `;
