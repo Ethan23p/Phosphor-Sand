@@ -22,7 +22,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, 'dev', 'out');
 const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
-const SUITES = { plants: ['waterfall', 'pipe', 'tunnel', 'reservoir', 'meadow'] };
+const SUITES = { plants: ['waterfall', 'pipe', 'tunnel', 'reservoir', 'meadow'], elements: ['gravity'] };
 const PER_RUN_TIMEOUT = 240e3;
 
 // ── args ──

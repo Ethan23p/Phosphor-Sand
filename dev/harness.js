@@ -25,7 +25,7 @@ export async function createHarness({ wgsl = simWGSL, extra = [] } = {}) {
   const device = await (await navigator.gpu.requestAdapter()).requestDevice();
   const module = async code => {
     const m = device.createShaderModule({ code });
-    for (const msg of (await m.getCompilationInfo()).messages) console.log(`${msg.type} L${msg.lineNum}: ${msg.message}`);
+    for (const msg of (await m.getCompilationInfo()).messages) console.log(`${msg.type === "error" ? "ERROR " : ""}${msg.type} L${msg.lineNum}: ${msg.message}`);
     return m;
   };
   const sim = device.createComputePipeline({ layout: 'auto', compute: { module: await module(wgsl), entryPoint: 'main' } });

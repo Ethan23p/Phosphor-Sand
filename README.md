@@ -61,7 +61,11 @@ Rendering: plant brightness tracks energy, from 0.25x (nearly empty) to 1.25x at
 
 ## Other rules
 
-- Sand, seeds and embers sink through water at half speed.
+- Gravity (each loose cell keeps a small motion state, see Cell encoding):
+  - Grains (sand, seeds, embers) accelerate as they fall: a grain at rest falls with chance `FALL_START`/(`FALL_START`+7), gaining a speed step 1 in `FALL_ACCEL_ODDS` steps until it always falls. Landing turns speed into a sideways skid, so impacts spread and piles settle just under 45°. A grain rolling off a slope leaves at speed `ROLL_V` or more, so it doesn't hang there and prop up the grains above it.
+  - Water always falls at full rate (a body of water mustn't hang in the air full of holes). At rest it flows sideways in the direction it remembers, turning around at walls and 1 in `FLOW_TURN_ODDS` times against other water, so it travels instead of wandering. Flowing gives it `SPILL` cells of sideways momentum, so water running off a ledge arcs out; rain, drips and pours fall straight.
+  - Sand and embers sink through water at half speed (slowed to a crawl); seeds float, bobbing up through water.
+  - Known limit: only surface water moves, so a tall body of water levels slowly (`gravity/dam` fails on purpose). Fixing it needs a pressure mechanism.
 - Smoke and steam rise and drift sideways; steam bubbles up through water.
 - Fire or ember touching water boils it to steam; steam condenses back to water (falls as rain), so water is conserved through the cycle.
 - The brush (GPU) only fills empty cells; the eraser clears everything. Neither touches the 1px stone border around the grid, which the sim keeps as stone. Strokes are queued per pointer event, so fast swipes and quick taps are drawn whole.
@@ -75,11 +79,13 @@ Rendering: plant brightness tracks energy, from 0.25x (nearly empty) to 1.25x at
 - `reservoir`: a mound drowned on one side.
 - `meadow`: phone-style watering.
 
+`node dev/strip.mjs elements` runs `gravity` (fall, pile, dam, sink): how the loose materials fall, pile, level and float.
+
 Scenarios live in `dev/scenarios/`, and any run takes tuning overrides (`BLOOM_E=4`). See [dev/README.md](dev/README.md) for the workflow, how to read a strip, and how to write a scenario. Older standalone pages (`flow`, `dist`, `trickle`, `pool`, `garden`, `elements`) still run through the same tool, e.g. `node dev/strip.mjs garden.html`.
 
 ## Cell encoding
 
-One `u32` per cell: `type | data << 8 | variant << 16`. `data` is per-type (fire/smoke/ember lifetime, plant energy). `variant` bits 0-1 pick a color; plants keep their energy as 14 bits (`data` plus variant bits 2-7, in `ENERGY_RES` fine units). Plant momentum and root distance live in a parallel buffer, two `u32`s per cell: signed 16-bit momentum x and y, then the distance (in half cells, capped at 255; bits 0-7) with the age packed above it (bits 8-15 the cell's own, 16-23 the plant's).
+One `u32` per cell: `type | data << 8 | variant << 16`. `data` is per-type (fire/smoke/ember lifetime, plant energy). `variant` bits 0-1 pick a color. Loose cells (sand, water, seeds, embers) keep their motion state in variant bits 2-7: fall speed (bits 2-4, 0 at rest), sideways direction (bit 5) and sideways momentum (bits 6-7). Plants keep their energy as 14 bits (`data` plus variant bits 2-7, in `ENERGY_RES` fine units). Plant momentum and root distance live in a parallel buffer, two `u32`s per cell: signed 16-bit momentum x and y, then the distance (in half cells, capped at 255; bits 0-7) with the age packed above it (bits 8-15 the cell's own, 16-23 the plant's).
 
 ## Adding a particle type
 

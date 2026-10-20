@@ -103,16 +103,21 @@ export async function runScenario() {
   const regions = (mod.regions && mod.regions(v)) || { all: () => true };
   const series = [];
   const line = (a, mm) => {
-    const r = measure(a, mm, regions); r.t = h.step / 180; series.push(r);
+    const r = measure(a, mm, regions); r.t = h.step / 180;
+    // a scenario's own measures (mod.measure(a, lib, v) -> { name: number })
+    const own = mod.measure ? mod.measure(a, lib, v) : null;
+    if (own) Object.assign(r, own);
+    series.push(r);
+    if (own) return Object.entries(own).map(([k, x]) => `${k} ${typeof x === 'number' ? +x.toFixed(2) : x}`).join(' | ');
     return `water ${String(r.water).padStart(5)} | ` + Object.keys(regions).map(k => `${k}: ${fmtRegion(r[k])}`).join(' | ');
   };
   const times = mod.times || [5, 15, 30, 60, 100, 180];
   const input = mod.input ? s => mod.input(h, s, v, lib) : null;
-  await h.snapshot(line, { mom: true });
+  await h.snapshot(line, { mom: mod.plantRows !== false });
   for (const t of times) {
     // run in chunks of a sim-second so progress shows and the page stays responsive
     while (h.step < t * 180) { h.run(Math.min(180, t * 180 - h.step), input); await h.read(); }
-    await h.snapshot(line, { mom: true });
+    await h.snapshot(line, { mom: mod.plantRows !== false });
   }
   h.finish(`${document.title}`);
   document.getElementById('strip').append(document.getElementById('cv'));

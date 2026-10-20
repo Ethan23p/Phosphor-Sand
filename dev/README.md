@@ -45,6 +45,14 @@ Stats per region:
 | `reservoir` | `plant`, `seed` | A mound drowned on one side by a pour. The dry side should flourish fast. |
 | `meadow` | | Phone-style play: seeds on a floor, a water stroke dragged for 1 s every 3 s. This is what a thriving plant should look like: thick bodies filling out, a bushy front led by thick (10px+) tendrils. |
 
+## The elements suite
+
+`node dev/strip.mjs elements`. Cells-only strips (`plantRows: false`) with each variant's own numbers (`measure`).
+
+| Scenario | Variants | What it asks |
+|---|---|---|
+| `gravity` | `fall`, `pile`, `dam`, `sink` | Blobs of each material dropped from the top should speed up. Sand poured from a point should pile below 45°. A tall water column should level within a few seconds (fails today: only surface water moves). Sand should sink and seeds float. |
+
 ## Writing a scenario
 
 A scenario is `dev/scenarios/<name>.js`, default-exporting an object. It imports nothing browser-side (the page passes it `lib`), so `strip.mjs` can read its variants in node. Shared builders live in `_*.js` files beside it (e.g. `_conduit.js`).
@@ -61,6 +69,8 @@ export default {
   input(h, step, v, lib) {},       // optional: called before every step (pours, sumps, play)
   regions: v => ({ name: (x, y) => bool }),                           // measured separately
   checks: (series, v) => [{ ok, text }],                               // series: one measure() per snapshot
+  measure(a, lib, v) {},           // optional: this scenario's own numbers per snapshot ({ name: number }), replacing the plant stats
+  plantRows: false,                // optional: strip shows only the cells row
 };
 ```
 

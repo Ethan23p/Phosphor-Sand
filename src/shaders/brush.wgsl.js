@@ -41,6 +41,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   if (br.cell_type == FIRE)  { d = 60u + (h >> 8u) % 40u; }
   if (br.cell_type == EMBER) { d = EMBER_LIFE; }
   if (br.cell_type == PLANT) { grid[i] = mp(GERM_E * ENERGY_RES, (h >> 16u) & 3u); return; }
-  grid[i] = mc(br.cell_type, d, (h >> 16u) & 3u);
+  grid[i] = mc(br.cell_type, d, (h >> 16u) & 0x23u); // random color and sideways direction (see sim motion)
 }
 `;

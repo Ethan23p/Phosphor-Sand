@@ -40,6 +40,13 @@ export const TUNING = {
   AGE_ODDS: 128,         // a cell ages 1/N per step and retires at 255: lives ~3 min
   SEED_DROP_ODDS: 16,    // a retiring cell leaves a seed 1 in N times (else steam); its energy goes to a neighbor
 
+  // ── Gravity ──
+  FALL_START: 2,         // a cell at rest falls with chance FALL_START/(FALL_START+7); at top speed (7) always
+  FALL_ACCEL_ODDS: 6,    // a falling cell gains a speed step 1 in N steps (top speed after ~0.25s)
+  ROLL_V: 4,             // a grain rolling off a slope leaves at least this fast (of 7)
+  FLOW_TURN_ODDS: 4,     // water flowing into other water turns around 1 in N times (at a wall, always)
+  SPILL: 3,              // cells (of 3) of sideways momentum flowing water carries off a ledge as it falls
+
   // ── Fire, water, steam ──
   IGNITE_ODDS: 8,        // fire's chance per step to ignite plants/seeds in its block
   QUENCH_ODDS: 12,       // fire/ember touching water: water flashes to steam (~70ms sizzle)

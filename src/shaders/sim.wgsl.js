@@ -74,8 +74,102 @@ fn is_fire(c:u32) -> bool { return gt(c) == FIRE; }
 // this block's sink bit is set (~half the steps), so they sink at half speed.
 fn disp(mover:u32, dest:u32, sink:bool) -> bool {
   if (em(dest)) { return true; }
-  return sink && heavy(mover) && lq(dest);
+  return sink && heavy(mover) && gt(mover) != SEED && lq(dest);
 }
+
+// Motion state of a loose cell (sand, water, seed, ember), in the variant bits
+// above the color (bits 0-1): bits 2-4 fall speed (0: at rest), bit 5 the
+// sideways direction (1: right), bits 6-7 sideways momentum left from a landing.
+fn fall_v(c:u32) -> u32 { return (gv(c) >> 2u) & 7u; }
+fn side_r(c:u32) -> bool { return ((gv(c) >> 5u) & 1u) == 1u; }
+fn skid_v(c:u32) -> u32 { return (gv(c) >> 6u) & 3u; }
+fn motion(c:u32, v:u32, right:bool, skid:u32) -> u32 {
+  return mc(gt(c), gd(c), (gv(c) & 3u) | (v << 2u) | (select(0u, 1u, right) << 5u) | (skid << 6u));
+}
+
+// Gravity for top slot i (0 or 1) falling into the slot below it. A falling
+// grain speeds up: it falls with chance (FALL_START + v) / (FALL_START + 7), and
+// each step it's unsupported v rises 1 in FALL_ACCEL_ODDS (at least to 1, so a
+// cell that has left the ground counts as falling). Sinking through water
+// caps v at 1 (drag). On landing on something at rest, a heavy cell turns its
+// speed into a sideways skid (see skid) and comes to rest. Water always falls at
+// full rate (a body of water mustn't hang in the air, full of holes); its speed
+// only marks it as falling (see flow).
+fn fall(c: ptr<function, Cells>, i:u32, b: Block, sink:bool) {
+  let a = (*c)[i];
+  if (!fl(a)) { return; }
+  let j = i + 2u;
+  let v = fall_v(a);
+  if (disp(a, (*c)[j], sink)) {
+    var nv = max(v, 1u);
+    if (nv < 7u && (roll(b, i, 70u) % FALL_ACCEL_ODDS) == 0u) { nv += 1u; }
+    if (lq((*c)[j]) && !lq(a)) { nv = 1u; }
+    let moved = motion(a, nv, side_r(a), select(0u, skid_v(a), lq(a)));   // water keeps its sideways momentum (see flow)
+    if (lq(a) || (roll(b, i, 71u) % (FALL_START + 7u)) < FALL_START + v) { (*c)[i] = (*c)[j]; (*c)[j] = moved; }
+    else { (*c)[i] = moved; }
+  } else if (v > 0u) {
+    // a grain resting on one still falling keeps pace with it (water lands at
+    // once, so a body of water is never all marked as falling and can flow)
+    let below = (*c)[j];
+    if (!lq(a) && fl(below) && fall_v(below) > 0u) { (*c)[i] = motion(a, min(v, fall_v(below)), side_r(a), 0u); return; }
+    var skid = skid_v(a);
+    if (heavy(a)) { skid = min((v + 1u) / 2u, 3u); }
+    (*c)[i] = motion(a, 0u, side_r(a), skid);   // keeps its direction: water poured down a slope keeps going
+  }
+}
+
+// A cell that can't fall straight rolls down diagonally (top slot i to the
+// opposite bottom slot) if the side it rolls past is clear, and keeps rolling:
+// it leaves at ROLL_V speed at least, so it doesn't hang on the slope (a hanging
+// grain would prop up the ones above it and make piles too steep)
+fn roll_off(c: ptr<function, Cells>, i:u32, sink:bool) {
+  let a = (*c)[i];
+  let j = 3u - i;
+  if (fl(a) && !disp(a, (*c)[i + 2u], sink) && disp(a, (*c)[j], sink) && !fl((*c)[i ^ 1u])) {
+    (*c)[i] = (*c)[j];
+    (*c)[j] = motion(a, max(fall_v(a), ROLL_V), side_r(a), skid_v(a));
+  }
+}
+
+// A heavy cell that landed with speed skids sideways (its skid momentum, one
+// cell a move) into open space beside it, so impacts spread out and piles settle
+// lower than 45 degrees. Blocked, it stops.
+fn skid(c: ptr<function, Cells>, i:u32) {
+  let a = (*c)[i];
+  if (!heavy(a)) { return; }
+  let k = skid_v(a);
+  if (k == 0u) { return; }
+  let left = (i & 1u) == 0u;
+  if (side_r(a) != left) { return; }        // its direction leaves the block: wait
+  let j = i ^ 1u;
+  if (em((*c)[j])) { (*c)[i] = (*c)[j]; (*c)[j] = motion(a, fall_v(a), side_r(a), k - 1u); }
+  else { (*c)[i] = motion(a, fall_v(a), side_r(a), 0u); }
+}
+
+// Water flows sideways the way it remembers, so it travels instead of
+// wandering (a hump levels in linear time, not diffusively). Blocked, it turns
+// around: always at a wall, 1 in FLOW_TURN_ODDS times against other water (so
+// water inside a body keeps shuffling its directions and its edges pour out).
+// Flowing gives it sideways momentum (the skid bits, SPILL cells' worth), which
+// it keeps as it falls, one cell a move: water running off a ledge arcs out
+// instead of hugging the wall. Water falling with none (rain, drips, pours)
+// falls straight, so streams don't spray.
+fn flow(c: ptr<function, Cells>, i:u32, b: Block) {
+  let a = (*c)[i];
+  if (!lq(a)) { return; }
+  let falling = fall_v(a) > 0u;
+  if (falling && skid_v(a) == 0u) { return; }
+  let left = (i & 1u) == 0u;
+  if (side_r(a) != left) { return; }
+  let j = i ^ 1u;
+  if (em((*c)[j])) {
+    (*c)[i] = (*c)[j];
+    (*c)[j] = motion(a, fall_v(a), side_r(a), select(SPILL, skid_v(a) - 1u, falling));
+  } else if (!lq((*c)[j]) || (roll(b, i, 73u) % FLOW_TURN_ODDS) == 0u) {
+    (*c)[i] = motion(a, fall_v(a), !side_r(a), select(0u, skid_v(a), !falling));
+  }
+}
+
 fn gas(c:u32) -> bool { let t = gt(c); return t == SMOKE || t == STEAM; }
 // Gases rise into empty space; steam also bubbles up through water
 fn rises_into(g:u32, above:u32) -> bool { return em(above) || (gt(g) == STEAM && lq(above)); }
@@ -120,22 +214,26 @@ fn rise_fire(cells: ptr<function, Cells>, src:u32, dst:u32) {
 // ═══════════════════════════════════════════
 //  PHASE 1: MOVEMENT (swaps only — conserves every particle)
 // ═══════════════════════════════════════════
-fn movement(cin: Cells, rng:u32) -> Cells {
+fn movement(cin: Cells, b: Block) -> Cells {
   var c = cin;
+  let rng = b.rng;
   let sink = ((rng >> 9u) & 1u) == 0u;
 
-  // Gravity straight
-  if (fl(c[0]) && disp(c[0], c[2], sink)) { sw(&c, 0u, 2u); }
-  if (fl(c[1]) && disp(c[1], c[3], sink)) { sw(&c, 1u, 3u); }
+  // Gravity straight (see fall)
+  fall(&c, 0u, b, sink);
+  fall(&c, 1u, b, sink);
 
-  // Gravity diagonal
-  if ((rng & 1u) == 0u) {
-    if (fl(c[0]) && !disp(c[0], c[2], sink) && disp(c[0], c[3], sink) && !fl(c[1])) { sw(&c, 0u, 3u); }
-    if (fl(c[1]) && !disp(c[1], c[3], sink) && disp(c[1], c[2], sink) && !fl(c[0])) { sw(&c, 1u, 2u); }
-  } else {
-    if (fl(c[1]) && !disp(c[1], c[3], sink) && disp(c[1], c[2], sink) && !fl(c[0])) { sw(&c, 1u, 2u); }
-    if (fl(c[0]) && !disp(c[0], c[2], sink) && disp(c[0], c[3], sink) && !fl(c[1])) { sw(&c, 0u, 3u); }
-  }
+  // Gravity diagonal: a cell that can't fall straight rolls off (see roll)
+  if ((rng & 1u) == 0u) { roll_off(&c, 0u, sink); roll_off(&c, 1u, sink); }
+  else { roll_off(&c, 1u, sink); roll_off(&c, 0u, sink); }
+
+  // Skids from landings
+  let sk = (rng >> 13u) & 3u;
+  for (var k = 0u; k < 4u; k = k + 1u) { skid(&c, (sk + k) & 3u); }
+
+  // Seeds float: a seed under water bobs up through it
+  if (gt(c[2]) == SEED && lq(c[0]) && ((rng >> 15u) & 1u) == 0u) { sw(&c, 2u, 0u); }
+  if (gt(c[3]) == SEED && lq(c[1]) && ((rng >> 16u) & 1u) == 0u) { sw(&c, 3u, 1u); }
 
   // Gases rise
   if (gas(c[2]) && rises_into(c[2], c[0])) { sw(&c, 2u, 0u); }
@@ -154,29 +252,8 @@ fn movement(cin: Cells, rng:u32) -> Cells {
     }
   }
 
-  // Water lateral spread
-  let sd = (rng >> 4u) & 1u;
-  if (lq(c[2]) && em(c[3]) && sd == 0u)      { sw(&c, 2u, 3u); }
-  else if (lq(c[3]) && em(c[2]) && sd == 1u)  { sw(&c, 3u, 2u); }
-  if (lq(c[0]) && em(c[1]) && sd == 1u)       { sw(&c, 0u, 1u); }
-  else if (lq(c[1]) && em(c[0]) && sd == 0u)  { sw(&c, 1u, 0u); }
-
-  // Water leveling: surface water with water below spreads to empty beside it
-  // This simulates hydrostatic pressure pushing the pool surface outward
-  if (lq(c[0]) && lq(c[2]) && em(c[1]) && !lq(c[3]) && sd == 0u) {
-    sw(&c, 0u, 1u); // TL water spreads right when sitting on water
-  } else if (lq(c[1]) && lq(c[3]) && em(c[0]) && !lq(c[2]) && sd == 1u) {
-    sw(&c, 1u, 0u); // TR water spreads left when sitting on water
-  }
-
-  // Water rising: water in bottom row rises to empty top cell (finding its level)
-  // Only when the water can't spread laterally (both bottom cells occupied)
-  let rise_bit = (rng >> 6u) & 1u;
-  if (lq(c[2]) && lq(c[3]) && em(c[0]) && !em(c[1]) && rise_bit == 0u) {
-    sw(&c, 2u, 0u); // BL rises to TL
-  } else if (lq(c[2]) && lq(c[3]) && em(c[1]) && !em(c[0]) && rise_bit == 1u) {
-    sw(&c, 3u, 1u); // BR rises to TR
-  }
+  // Water flows sideways (see flow)
+  for (var k = 0u; k < 4u; k = k + 1u) { flow(&c, (sk + k) & 3u, b); }
 
   return c;
 }
@@ -239,7 +316,7 @@ fn tick_steam(cin: Cells, i:u32, b: Block) -> Cells {
   var c = cin;
   if ((roll(b, i, 17u) & 3u) == 0u) {
     let life = gd(c[i]);
-    if (life <= 1u) { c[i] = mc(WATER, 0u, roll(b, i, 18u) & 3u); }
+    if (life <= 1u) { c[i] = mc(WATER, 0u, roll(b, i, 18u) & 0x23u); } // random color and flow direction
     else { c[i] = mc(STEAM, life - 1u, gv(c[i])); }
   }
   return c;
@@ -731,7 +808,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
   }
 
-  c = movement(c, b.rng);
+  c = movement(c, b);
   plant_consume(&c, &m, &dist, b);
   plant_flow(&c, &m, &dist, &age, b);
   plant_dist(c, &dist, b);
