@@ -14,7 +14,7 @@ Phosphor Sand is a WebGPU falling-sand toy. It's plain ES modules with no build 
 ## Testing: dev scenarios
 
 There's no unit test suite. Behavior is verified by running the real shaders on the GPU. See `dev/README.md` for the full workflow.
-- `node dev/strip.mjs elements` runs `gravity` (fall, pile, dam, sink). `dam` fails on purpose until water has pressure.
+- `node dev/strip.mjs elements` runs `gravity` (fall, pile, dam, sink, utube, fountain, erode). `dam`, `utube`, `fountain` and `erode` fail on purpose: they're targets for water pressure, which needs water carried through a body (only surface water moves today).
 - `node dev/strip.mjs plants` runs the plant suite (`waterfall`, `pipe`, `tunnel`, `reservoir`, `meadow`, every variant; about 30 s). Name a scenario, `scenario/variant` or `page.html` to run less. Add `NAME=value` tuning overrides for sweeps and `--tag` to name the files.
 - It prints each snapshot as it lands and ends with a PASS/FAIL table from each scenario's checks. Strips (`.png`, headed by the scenario's intent) and stats (`.txt`) land in `dev/out/` (gitignored).
 - A scenario is a module in `dev/scenarios/` with `intent`, `expect`, `variants`, `build`, `input`, `regions` and `checks`. Run through `dev/scenario.html` and `dev/scenario.js`, it imports nothing browser-side.

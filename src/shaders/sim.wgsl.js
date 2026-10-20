@@ -107,6 +107,11 @@ fn fall(c: ptr<function, Cells>, i:u32, b: Block, sink:bool) {
     let moved = motion(a, nv, side_r(a), select(0u, skid_v(a), lq(a)));   // water keeps its sideways momentum (see flow)
     if (lq(a) || (roll(b, i, 71u) % (FALL_START + 7u)) < FALL_START + v) { (*c)[i] = (*c)[j]; (*c)[j] = moved; }
     else { (*c)[i] = moved; }
+  } else if (lq(a) && v >= 3u && gt((*c)[j]) == SAND && fall_v((*c)[j]) == 0u && (roll(b, i, 75u) % ERODE_ODDS) == 0u) {
+    // Fast water hitting sand splashes a grain up and aside (the water digs in):
+    // a waterfall carves a plunge pool and heaps the sand around it
+    (*c)[i] = motion((*c)[j], 0u, (roll(b, i, 76u) & 1u) == 1u, 3u);
+    (*c)[j] = motion(a, 0u, side_r(a), 0u);
   } else if (v > 0u) {
     // a grain resting on one still falling keeps pace with it (water lands at
     // once, so a body of water is never all marked as falling and can flow)
@@ -132,8 +137,9 @@ fn roll_off(c: ptr<function, Cells>, i:u32, sink:bool) {
 }
 
 // A heavy cell that landed with speed skids sideways (its skid momentum, one
-// cell a move) into open space beside it, so impacts spread out and piles settle
-// lower than 45 degrees. Blocked, it stops.
+// cell a move) into open space beside it, or through water while it has 2 or
+// more, so impacts spread out and piles settle lower than 45 degrees, and sand
+// kicked up by water (see flow) is carried downstream. Blocked, it stops.
 fn skid(c: ptr<function, Cells>, i:u32) {
   let a = (*c)[i];
   if (!heavy(a)) { return; }
@@ -142,7 +148,7 @@ fn skid(c: ptr<function, Cells>, i:u32) {
   let left = (i & 1u) == 0u;
   if (side_r(a) != left) { return; }        // its direction leaves the block: wait
   let j = i ^ 1u;
-  if (em((*c)[j])) { (*c)[i] = (*c)[j]; (*c)[j] = motion(a, fall_v(a), side_r(a), k - 1u); }
+  if (em((*c)[j]) || (k >= 2u && lq((*c)[j]))) { (*c)[i] = (*c)[j]; (*c)[j] = motion(a, fall_v(a), side_r(a), k - 1u); }
   else { (*c)[i] = motion(a, fall_v(a), side_r(a), 0u); }
 }
 
@@ -165,6 +171,17 @@ fn flow(c: ptr<function, Cells>, i:u32, b: Block) {
   if (em((*c)[j])) {
     (*c)[i] = (*c)[j];
     (*c)[j] = motion(a, fall_v(a), side_r(a), select(SPILL, skid_v(a) - 1u, falling));
+    // Erosion: water spilling over a sand edge (open air or water below where
+    // it's going) now and then kicks the edge grain up into the stream (the
+    // water drops into its place), with the stream's momentum; the grain is
+    // carried over the edge (see skid) and settles downhill. So streams cut
+    // back into sand and wear channels, and the sand builds up where they slow.
+    if (i < 2u && gt((*c)[i + 2u]) == SAND && (em((*c)[j + 2u]) || lq((*c)[j + 2u]))
+        && (roll(b, i, 74u) % ERODE_ODDS) == 0u) {
+      (*c)[i] = motion((*c)[i + 2u], 0u, side_r(a), 3u);
+      (*c)[i + 2u] = (*c)[j];
+      (*c)[j] = 0u;
+    }
   } else if (!lq((*c)[j]) || (roll(b, i, 73u) % FLOW_TURN_ODDS) == 0u) {
     (*c)[i] = motion(a, fall_v(a), !side_r(a), select(0u, skid_v(a), !falling));
   }

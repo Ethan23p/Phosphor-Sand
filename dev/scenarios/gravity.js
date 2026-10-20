@@ -1,6 +1,7 @@
 // How the loose materials fall, pile, flow and settle. One variant per
 // question; each measures its own numbers (see measure) instead of the plant stats.
 const FLOOR = 236;
+const OUTLET = 100;                                              // fountain: the pipe's mouth
 const COLS = { sand: 40, water: 100, seed: 160, ember: 220 };   // fall: one blob per material
 
 // For each column x, the top of the material of type t (H if none), scanning down from y0
@@ -21,11 +22,14 @@ function meanY(a, t, f, { W, N }) {
 export default {
   intent: 'Gravity for the loose materials. fall: equal blobs of sand, water, seed and ember dropped from the top (how fast, do they accelerate, do they keep their shape). '
     + 'pile: sand poured from a point onto a floor (angle of repose, avalanches). dam: a tall water column released into an empty tank (how fast it levels). '
-    + 'sink: sand, seeds and embers dropped onto a pool (do the heavy things sink, do the light things float, does the water get displaced).',
-  expect: ['falling things speed up', 'sand piles with a natural, slightly irregular slope', 'water levels within a few seconds', 'heavy sinks, light floats'],
-  legend: 'Cells only. Stats: fall: mean y of each blob; pile: height, half-width, slope (degrees); dam: surface top-bottom spread; sink: mean y of each solid vs the pool surface.',
+    + 'sink: sand, seeds and embers dropped onto a pool (do the heavy things sink, do the light things float, does the water get displaced). '
+    + 'utube: a full tank and an empty one joined under a wall (does the water find its level on both sides). '
+    + 'fountain: a high tank drains through a pipe that opens upward lower down (does it spout). '
+    + 'erode: a stream poured onto a sloping sand bank (does it carve into the bank and carry sand down past its foot).',
+  expect: ['falling things speed up', 'sand piles with a natural, slightly irregular slope', 'water levels within a few seconds', 'heavy sinks, light floats', 'connected water levels across walls', 'pressure makes fountains', 'streams cut into sand and drop it downstream'],
+  legend: 'Cells only. Stats: fall: mean y of each blob; pile: height, half-width, slope (degrees); dam: surface top-bottom spread; sink: mean y of each solid vs the pool surface; utube: water level each side; fountain: jet height above the outlet, tank level; erode: sand top under the stream, sand past the bank.',
   plantRows: false,
-  variants: { fall: { k: 'fall' }, pile: { k: 'pile' }, dam: { k: 'dam' }, sink: { k: 'sink' } },
+  variants: { fall: { k: 'fall' }, pile: { k: 'pile' }, dam: { k: 'dam' }, sink: { k: 'sink' }, utube: { k: 'utube' }, fountain: { k: 'fountain' }, erode: { k: 'erode' } },
   times: [0.25, 0.5, 1, 2, 5, 15],
   build(g, v, { fill, disc, makeCell, T, STONE, WATER, SAND }) {
     fill(g, 1, 255, FLOOR, 255, STONE);
@@ -40,8 +44,27 @@ export default {
       fill(g, 100, 150, 140, 150, makeCell(T.SEED, 0, 0));
       fill(g, 180, 230, 140, 150, makeCell(T.EMBER, 200, 0));
     }
+    if (v.k === 'utube') {
+      fill(g, 2, 126, 60, FLOOR, WATER);
+      fill(g, 126, 130, 1, FLOOR - 16, STONE);   // the wall, open along the floor
+    }
+    if (v.k === 'erode') {   // a bank sloping down to the right at ~30 degrees (stable on its own); the stream lands near the top
+      for (let x = 2; x < 160; x++) { const top = FLOOR - Math.round(90 - 0.58 * (x - 2)); if (top < FLOOR) fill(g, x, x + 1, top, FLOOR, SAND); }
+    }
+    if (v.k === 'fountain') {
+      // stone ground from y 100; a walled tank on the left, a pipe along y 196-200 and up to an outlet at (196..200, 100)
+      fill(g, 1, 255, OUTLET, FLOOR, STONE);
+      fill(g, 6, 74, 20, OUTLET, STONE);
+      fill(g, 10, 70, 20, 200, 0);
+      fill(g, 70, 200, 196, 200, 0);
+      fill(g, 196, 200, OUTLET, 200, 0);
+      fill(g, 10, 70, 30, 200, WATER);
+      fill(g, 70, 200, 196, 200, WATER);
+      fill(g, 196, 200, OUTLET, 200, WATER);
+    }
   },
   input(h, s, v, { T }) {
+    if (v.k === 'erode' && s % 4 === 0) h.brush({ x0: 40, y0: 60, x1: 40.5, y1: 60, r: 2, type: T.WATER, density: 160 });
     if (v.k === 'pile' && s % 3 === 0) h.brush({ x0: 128, y0: 30, x1: 128.5, y1: 30, r: 3, type: T.SAND, density: 160 });
   },
   measure(a, lib, v) {
@@ -67,6 +90,20 @@ export default {
       const t = tops(a, T.WATER, 2, 254, 0, lib).map(y => Math.min(y, FLOOR));
       return { highest: FLOOR - Math.min(...t), lowest: FLOOR - Math.max(...t), spread: Math.max(...t) - Math.min(...t) };
     }
+    if (v.k === 'utube') {
+      const lv = (x0, x1) => { const t = tops(a, T.WATER, x0, x1, 0, lib).sort((p, q) => p - q); return FLOOR - t[t.length >> 1]; };
+      return { left: lv(10, 110), right: lv(140, 245) };
+    }
+    if (v.k === 'fountain') {
+      const t = tops(a, T.WATER, 186, 210, 0, lib), tank = tops(a, T.WATER, 10, 70, 0, lib).sort((p, q) => p - q);
+      return { jet: Math.max(0, OUTLET - Math.min(...t)), tank: OUTLET - tank[tank.length >> 1] };
+    }
+    if (v.k === 'erode') {
+      const { W } = lib; let past = 0;
+      for (let y = 0; y < FLOOR; y++) for (let x = 165; x < 254; x++) if ((a[y * W + x] & 255) === T.SAND) past++;
+      const t = tops(a, T.SAND, 36, 45, 0, lib);
+      return { under: FLOOR - Math.max(...t), past };
+    }
     if (v.k === 'sink') {
       const ts = tops(a, T.WATER, 2, 254, 100, lib).sort((p, q) => p - q), surf = ts[ts.length >> 1];   // median surface
       return { surface: surf, sand: meanY(a, T.SAND, () => true, lib), seed: meanY(a, T.SEED, () => true, lib), sprout: meanY(a, T.PLANT, () => true, lib), ember: meanY(a, T.EMBER, () => true, lib) };
@@ -85,6 +122,15 @@ export default {
       const at5 = s.find(r => r.t >= 5);
       return [{ ok: at5.spread <= 4, text: `levels: surface spread ${at5.spread} cells at 5s (want <= 4)` }];
     }
+    if (v.k === 'utube') return [{ ok: Math.abs(e.left - e.right) <= 4, text: `levels across the wall: left ${e.left}, right ${e.right} at 15s (want within 4)` }];
+    if (v.k === 'fountain') {
+      const jet = Math.max(...s.map(r => r.jet));
+      return [{ ok: jet >= 20, text: `spouts: highest jet ${jet} cells above the outlet (want >= 20)` }];
+    }
+    if (v.k === 'erode') return [
+      { ok: e.under < s[0].under - 10, text: `carves: sand under the stream ${e.under} cells high (from ${s[0].under}, want 10+ lower)` },
+      { ok: e.past > 100, text: `carries: ${e.past} sand cells past the bank (want > 100)` },
+    ];
     if (v.k === 'sink') return [
       { ok: e.sand > e.surface + 20, text: `sand sinks: mean y ${e.sand.toFixed(0)}, surface ${e.surface}` },
       { ok: Math.max(e.seed, e.sprout) < e.surface + 4, text: `seeds float: mean y ${e.seed.toFixed(0)} (sprouts ${e.sprout.toFixed(0)}), surface ${e.surface}` },

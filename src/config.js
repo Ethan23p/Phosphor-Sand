@@ -46,6 +46,7 @@ export const TUNING = {
   ROLL_V: 4,             // a grain rolling off a slope leaves at least this fast (of 7)
   FLOW_TURN_ODDS: 4,     // water flowing into other water turns around 1 in N times (at a wall, always)
   SPILL: 3,              // cells (of 3) of sideways momentum flowing water carries off a ledge as it falls
+  ERODE_ODDS: 8,         // water running over sand (or falling hard onto it) kicks up a grain 1 in N times
 
   // ── Fire, water, steam ──
   IGNITE_ODDS: 8,        // fire's chance per step to ignite plants/seeds in its block

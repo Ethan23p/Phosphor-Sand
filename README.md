@@ -65,7 +65,8 @@ Rendering: plant brightness tracks energy, from 0.25x (nearly empty) to 1.25x at
   - Grains (sand, seeds, embers) accelerate as they fall: a grain at rest falls with chance `FALL_START`/(`FALL_START`+7), gaining a speed step 1 in `FALL_ACCEL_ODDS` steps until it always falls. Landing turns speed into a sideways skid, so impacts spread and piles settle just under 45°. A grain rolling off a slope leaves at speed `ROLL_V` or more, so it doesn't hang there and prop up the grains above it.
   - Water always falls at full rate (a body of water mustn't hang in the air full of holes). At rest it flows sideways in the direction it remembers, turning around at walls and 1 in `FLOW_TURN_ODDS` times against other water, so it travels instead of wandering. Flowing gives it `SPILL` cells of sideways momentum, so water running off a ledge arcs out; rain, drips and pours fall straight.
   - Sand and embers sink through water at half speed (slowed to a crawl); seeds float, bobbing up through water.
-  - Known limit: only surface water moves, so a tall body of water levels slowly (`gravity/dam` fails on purpose). Fixing it needs a pressure mechanism.
+  - Erosion: water spilling over a sand edge kicks the edge grain into the stream 1 in `ERODE_ODDS` times, and fast falling water splashes up the grain it lands on. Kicked grains skid on through water while they have momentum, so they're carried a little way downstream.
+  - Known limit: only surface water moves, so a tall body of water levels slowly, connected pools don't level and nothing spouts (`gravity/dam`, `utube`, `fountain` fail on purpose), and a stream pools into a still mound rather than running, which keeps erosion weak (`gravity/erode`). Fixing it needs a pressure mechanism that carries water through a body.
 - Smoke and steam rise and drift sideways; steam bubbles up through water.
 - Fire or ember touching water boils it to steam; steam condenses back to water (falls as rain), so water is conserved through the cycle.
 - The brush (GPU) only fills empty cells; the eraser clears everything. Neither touches the 1px stone border around the grid, which the sim keeps as stone. Strokes are queued per pointer event, so fast swipes and quick taps are drawn whole.
@@ -79,7 +80,7 @@ Rendering: plant brightness tracks energy, from 0.25x (nearly empty) to 1.25x at
 - `reservoir`: a mound drowned on one side.
 - `meadow`: phone-style watering.
 
-`node dev/strip.mjs elements` runs `gravity` (fall, pile, dam, sink): how the loose materials fall, pile, level and float.
+`node dev/strip.mjs elements` runs `gravity` (fall, pile, dam, sink, utube, fountain, erode): how the loose materials fall, pile, level, float and erode.
 
 Scenarios live in `dev/scenarios/`, and any run takes tuning overrides (`BLOOM_E=4`). See [dev/README.md](dev/README.md) for the workflow, how to read a strip, and how to write a scenario. Older standalone pages (`flow`, `dist`, `trickle`, `pool`, `garden`, `elements`) still run through the same tool, e.g. `node dev/strip.mjs garden.html`.
 
