@@ -68,17 +68,22 @@ fn noise_variant(cx:u32, cy:u32) -> u32 {
 fn heavy(c:u32) -> bool { let t = gt(c); return t == SAND || t == SEED || t == EMBER; }
 fn em(c:u32) -> bool { return gt(c) == EMPTY; }
 fn lq(c:u32) -> bool { return gt(c) == WATER; }
-// Liquids (water, oil) move alike (see fall, flow); lq is water alone
-fn liq(c:u32) -> bool { let t = gt(c); return t == WATER || t == OIL; }
+// Liquids (water, oil, soap) move alike (see fall, flow); lq is water alone
+fn liq(c:u32) -> bool { let t = gt(c); return t == WATER || t == OIL || t == SOAP; }
 fn fl(c:u32) -> bool { return heavy(c) || liq(c); }
+// Liquid weight: oil 0 floats on soap 1, which floats on water 2
+fn weight(c:u32) -> u32 { let t = gt(c); return select(select(2u, 1u, t == SOAP), 0u, t == OIL); }
 fn is_fire(c:u32) -> bool { return gt(c) == FIRE; }
-// Can mover fall into dest? Heavy particles sink through liquid, and water
-// through oil (oil floats), only when this block's sink bit is set (~half the
-// steps), so they sink at half speed. Seeds float on water but sink in oil.
+// Can mover fall into dest? Heavy particles sink through liquid, and the
+// liquids sort by weight (oil floats on soap, soap on water), only when this
+// block's sink bit is set (~half the steps), so they sink at half speed. Seeds
+// float on water and soap but sink in oil.
 fn disp(mover:u32, dest:u32, sink:bool) -> bool {
   if (em(dest)) { return true; }
   if (!sink) { return false; }
-  if (gt(dest) == OIL) { return heavy(mover) || lq(mover); }
+  let td = gt(dest);
+  if (td == OIL) { return heavy(mover) || lq(mover) || gt(mover) == SOAP; }
+  if (td == SOAP) { return (heavy(mover) && gt(mover) != SEED) || lq(mover); }
   return heavy(mover) && gt(mover) != SEED && lq(dest);
 }
 
@@ -105,13 +110,22 @@ fn fall(c: ptr<function, Cells>, i:u32, b: Block, sink:bool) {
   if (!fl(a)) { return; }
   let j = i + 2u;
   let v = fall_v(a);
-  if (disp(a, (*c)[j], sink)) {
+  // a soap-coated oil droplet (see tick_soap) stays put in water: water
+  // doesn't sink past it
+  let held = lq(a) && gt((*c)[j]) == OIL && gd((*c)[j]) == 1u;
+  if (disp(a, (*c)[j], sink) && !held) {
     var nv = max(v, 1u);
     if (nv < 7u && (roll(b, i, 70u) % FALL_ACCEL_ODDS) == 0u) { nv += 1u; }
     if (liq((*c)[j])) { nv = 1u; }
     let moved = motion(a, nv, side_r(a), select(0u, skid_v(a), liq(a)));   // liquid keeps its sideways momentum (see flow)
     if (liq(a) || (roll(b, i, 71u) % (FALL_START + 7u)) < FALL_START + v) { (*c)[i] = (*c)[j]; (*c)[j] = moved; }
     else { (*c)[i] = moved; }
+  } else if (lq(a) && v >= 4u && gt((*c)[j]) == SOAP && (roll(b, i, 100u) % FOAM_ODDS) == 0u) {
+    // Lather: water falling fast onto soap whips it up into foam (the soap, as a
+    // film, plus bubbles of the air around it); the water takes its place
+    (*c)[i] = mc(FOAM, 1u, roll(b, i, 101u) & 3u);
+    (*c)[j] = motion(a, 0u, side_r(a), 0u);
+    for (var k = 0u; k < 4u; k = k + 1u) { if (em((*c)[k])) { (*c)[k] = mc(FOAM, 0u, (roll(b, i, 102u) >> (2u * k)) & 3u); } }
   } else if (lq(a) && v >= 3u && gt((*c)[j]) == SAND && fall_v((*c)[j]) == 0u && (roll(b, i, 75u) % ERODE_ODDS) == 0u) {
     // Fast water hitting sand splashes a grain up and aside (the water digs in):
     // a waterfall carves a plunge pool and heaps the sand around it
@@ -190,6 +204,11 @@ fn flow(c: ptr<function, Cells>, i:u32, b: Block) {
       (*c)[i + 2u] = (*c)[j];
       (*c)[j] = 0u;
     }
+  } else if (i >= 2u && liq((*c)[j]) && weight((*c)[j]) < weight(a) && (roll(b, i, 108u) & 1u) == 0u) {
+    // a heavier liquid flows under a lighter one beside it, so liquids spread
+    // into layers instead of standing in columns
+    (*c)[i] = (*c)[j];
+    (*c)[j] = a;
   } else if (!liq((*c)[j]) || (roll(b, i, 73u) % FLOW_TURN_ODDS) == 0u) {
     (*c)[i] = motion(a, fall_v(a), !side_r(a), select(0u, skid_v(a), !falling));
   }
@@ -276,6 +295,13 @@ fn movement(cin: Cells, b: Block) -> Cells {
       if (gas(c[3]) && em(c[2])) { sw(&c, 3u, 2u); }
     }
   }
+
+  // Foam is light and stiff: it rises through liquid, settles slowly through
+  // air and heaps rather than flowing
+  if (gt(c[2]) == FOAM && liq(c[0])) { sw(&c, 2u, 0u); }
+  if (gt(c[3]) == FOAM && liq(c[1])) { sw(&c, 3u, 1u); }
+  if (gt(c[0]) == FOAM && em(c[2]) && ((rng >> 19u) & 3u) == 0u) { sw(&c, 0u, 2u); }
+  if (gt(c[1]) == FOAM && em(c[3]) && ((rng >> 21u) & 3u) == 0u) { sw(&c, 1u, 3u); }
 
   // Water flows sideways (see flow)
   for (var k = 0u; k < 4u; k = k + 1u) { flow(&c, (sk + k) & 3u, b); }
@@ -708,6 +734,47 @@ fn tick_plant(cin: Cells, m: ptr<function, Moms>, d: ptr<function, Dists>, k: pt
   return c;
 }
 
+// SOAP: one end of a soap molecule likes water and the other oil, so soap
+// mixes into both: now and then it trades places with an oil or water cell in
+// its block, and where it touches both, an oil cell and a water cell trade
+// places, and the oil comes away coated in soap (data 1): a droplet that drifts
+// through the water instead of floating back up (see tick_oil), so soap at an
+// oil-water boundary churns oil droplets into the water (an emulsion).
+fn tick_soap(cin: Cells, i:u32, b: Block) -> Cells {
+  var c = cin;
+  if ((roll(b, i, 103u) % SOAP_MIX_ODDS) != 0u) { return c; }
+  let j = find_neighbor(c, i, OIL, roll(b, i, 104u));
+  let k = find_neighbor(c, i, WATER, roll(b, i, 105u));
+  if (j < 4u && k < 4u) { let o = c[j]; c[j] = c[k]; c[k] = mc(OIL, 1u, gv(o)); return c; }
+  let n = select(k, j, j < 4u);
+  if (n < 4u) { sw(&c, i, n); }
+  return c;
+}
+
+// OIL: a soap-coated droplet (data 1) drifts through the water around it,
+// trading places with a water cell in its block now and then, and loses its
+// coating 1 in EMULSION_ODDS steps, after which it floats back up
+fn tick_oil(cin: Cells, i:u32, b: Block) -> Cells {
+  var c = cin;
+  if (gd(c[i]) != 1u) { return c; }
+  if ((roll(b, i, 109u) % EMULSION_ODDS) == 0u) { c[i] = mc(OIL, 0u, gv(c[i])); return c; }
+  if ((roll(b, i, 110u) & 3u) == 0u) {
+    let k = find_neighbor(c, i, WATER, roll(b, i, 111u));
+    if (k < 4u) { sw(&c, i, k); }
+  }
+  return c;
+}
+
+// FOAM: a film (data 1, holding the soap) turns back into soap, and a bubble
+// (data 0, just air) pops, each 1 in FOAM_POP_ODDS steps
+fn tick_foam(cin: Cells, i:u32, b: Block) -> Cells {
+  var c = cin;
+  if ((roll(b, i, 106u) % FOAM_POP_ODDS) != 0u) { return c; }
+  if (gd(c[i]) == 1u) { c[i] = mc(SOAP, 0u, roll(b, i, 107u) & 0x23u); }
+  else { c[i] = 0u; }
+  return c;
+}
+
 // EMBER: falls like sand, sparks now and then, boils water it touches
 fn tick_ember(cin: Cells, i:u32, b: Block) -> Cells {
   var c = cin;
@@ -858,6 +925,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     else if (t == SEED)  { c = tick_seed(c, i, b); dist[i] = 0u; age[i] = 0u; } // a sprout is a root, and a newborn plant
     else if (t == PLANT) { c = tick_plant(c, &m, &dist, &age, i, b); }
     else if (t == EMBER) { c = tick_ember(c, i, b); }
+    else if (t == SOAP)  { c = tick_soap(c, i, b); }
+    else if (t == OIL)   { c = tick_oil(c, i, b); }
+    else if (t == FOAM)  { c = tick_foam(c, i, b); }
   }
 
   c = convection(c, b);
