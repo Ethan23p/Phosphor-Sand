@@ -94,9 +94,10 @@ export async function createHarness({ wgsl = simWGSL, extra = [] } = {}) {
       console.log(line);
       return a;
     },
-    // Render all snapshots side by side (scale 2) and print stats under them
-    finish(title) {
-      const S = 2, cv = document.createElement('canvas'), rows = frames.some(f => f.m) ? 4 : 1;
+    // Render all snapshots side by side (scale 2) and print stats under them.
+    // zoom ({ x, y, w, h }) adds a last row magnifying that part of the grid.
+    finish(title, { zoom } = {}) {
+      const S = 2, cv = document.createElement('canvas'), rows = (frames.some(f => f.m) ? 4 : 1) + (zoom ? 1 : 0);
       cv.id = 'cv'; cv.width = W * frames.length * S + (frames.length - 1) * 4; cv.height = H * S * rows + (rows - 1) * 4;
       const ctx = cv.getContext('2d'); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cv.width, cv.height);
       frames.forEach((f, k) => {
@@ -105,9 +106,10 @@ export async function createHarness({ wgsl = simWGSL, extra = [] } = {}) {
           const c = colorOf(f.a[i]), o = i * 4;
           img.data[o] = c[0] * 255; img.data[o + 1] = c[1] * 255; img.data[o + 2] = c[2] * 255; img.data[o + 3] = 255;
         }
-        const tmp = document.createElement('canvas'); tmp.width = W; tmp.height = H; tmp.getContext('2d').putImageData(img, 0, 0);
+        const tmp = document.createElement('canvas'); tmp.width = W; tmp.height = H;
         ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(tmp, k * (W * S + 4), 0, W * S, H * S);
+        ctx.putImageData(cellImage(ctx, f.a, 0, 0, W, H, S), k * (W * S + 4), 0);
+        if (zoom) ctx.putImageData(cellImage(ctx, f.a, zoom.x, zoom.y, zoom.w, zoom.h, W * S / zoom.w), k * (W * S + 4), (rows - 1) * (H * S + 4));
         if (f.m) {
           // moving energy: black at rest, through red to white at a whole drink's worth
           for (let i = 0; i < N; i++) {
@@ -176,6 +178,24 @@ export function colorOf(cell) {
     c = c.map(x => Math.min(1, x * k));
   }
   return c;
+}
+
+// The cells of a w x h window at (x0, y0), Z screen pixels per cell, with
+// soap and lipid heads marked by a white edge as in the game
+function cellImage(ctx, a, x0, y0, w, h, Z) {
+  const img = ctx.createImageData(w * Z, h * Z), et = Math.max(1, Math.round(Z / 4));
+  const OFF = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const cell = a[(y0 + y) * W + x0 + x], c = colorOf(cell), t = cell & 255;
+    const o = (t === T.SOAP || t === T.LIPID) ? OFF[(cell >> 8) & 7] : null;
+    for (let sy = 0; sy < Z; sy++) for (let sx = 0; sx < Z; sx++) {
+      const edge = o && ((o[0] > 0 && sx >= Z - et) || (o[0] < 0 && sx < et) || (o[1] > 0 && sy >= Z - et) || (o[1] < 0 && sy < et));
+      const q = ((y * Z + sy) * w * Z + x * Z + sx) * 4;
+      for (let n = 0; n < 3; n++) img.data[q + n] = 255 * (edge ? c[n] * 0.15 + 0.85 : c[n]);
+      img.data[q + 3] = 255;
+    }
+  }
+  return img;
 }
 
 // Default stats: count per type, plus average plant energy

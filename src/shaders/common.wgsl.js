@@ -21,6 +21,15 @@ const PE_MAX:u32 = 16383u;
 fn pe(c:u32) -> u32 { return ((c >> 8u) & 255u) | (((c >> 18u) & 63u) << 8u); }
 fn mp(e:u32, color:u32) -> u32 { return mc(PLANT, e & 255u, (color & 3u) | ((e >> 8u) << 2u)); }
 
+// Soap and lipid: the head direction, data bits 0-2, counted clockwise from
+// east (y points down): E SE S SW W NW N NE
+fn head(c:u32) -> u32 { return gd(c) & 7u; }
+fn dir_off(k:u32) -> vec2i {
+  var o = array<vec2i, 8>(vec2i(1, 0), vec2i(1, 1), vec2i(0, 1), vec2i(-1, 1), vec2i(-1, 0), vec2i(-1, -1), vec2i(0, -1), vec2i(1, -1));
+  return o[k & 7u];
+}
+fn amph(c:u32) -> bool { let t = gt(c); return t == SOAP || t == LIPID; }
+
 fn hh(xi:u32) -> u32 {
   var h = xi;
   h = h ^ (h >> 16u);

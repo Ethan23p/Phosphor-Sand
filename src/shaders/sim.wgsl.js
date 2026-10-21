@@ -68,23 +68,24 @@ fn noise_variant(cx:u32, cy:u32) -> u32 {
 fn heavy(c:u32) -> bool { let t = gt(c); return t == SAND || t == SEED || t == EMBER; }
 fn em(c:u32) -> bool { return gt(c) == EMPTY; }
 fn lq(c:u32) -> bool { return gt(c) == WATER; }
-// Liquids (water, oil, soap) move alike (see fall, flow); lq is water alone
-fn liq(c:u32) -> bool { let t = gt(c); return t == WATER || t == OIL || t == SOAP; }
+// Liquids (water, oil, soap, lipid) move alike (see fall, flow); lq is water alone
+fn liq(c:u32) -> bool { let t = gt(c); return t == WATER || t == OIL || amph(c); }
 fn fl(c:u32) -> bool { return heavy(c) || liq(c); }
-// Liquid weight: oil 0 floats on soap 1, which floats on water 2
-fn weight(c:u32) -> u32 { let t = gt(c); return select(select(2u, 1u, t == SOAP), 0u, t == OIL); }
+// Liquid weight: oil 0 floats on water 2; soap and lipid weigh as much as water
+// (they float on it as a film and mix into it by their own moves, see tick_amph)
+fn weight(c:u32) -> u32 { return select(2u, 0u, gt(c) == OIL); }
 fn is_fire(c:u32) -> bool { return gt(c) == FIRE; }
-// Can mover fall into dest? Heavy particles sink through liquid, and the
-// liquids sort by weight (oil floats on soap, soap on water), only when this
-// block's sink bit is set (~half the steps), so they sink at half speed. Seeds
-// float on water and soap but sink in oil.
+// Can mover fall into dest? Heavy particles sink through liquid, and water,
+// soap and lipid sink through oil, only when this block's sink bit is set (~half
+// the steps), so they sink at half speed. Seeds float on water, soap and lipid
+// but sink in oil. (Falling water also passes through soap and lipid, and they
+// plunge into water: see fall.)
 fn disp(mover:u32, dest:u32, sink:bool) -> bool {
   if (em(dest)) { return true; }
   if (!sink) { return false; }
   let td = gt(dest);
-  if (td == OIL) { return heavy(mover) || lq(mover) || gt(mover) == SOAP; }
-  if (td == SOAP) { return (heavy(mover) && gt(mover) != SEED) || lq(mover); }
-  return heavy(mover) && gt(mover) != SEED && lq(dest);
+  if (td == OIL) { return heavy(mover) || lq(mover) || amph(mover); }
+  return heavy(mover) && gt(mover) != SEED && (lq(dest) || amph(dest));
 }
 
 // Motion state of a loose cell (sand, water, seed, ember), in the variant bits
@@ -110,9 +111,9 @@ fn fall(c: ptr<function, Cells>, i:u32, b: Block, sink:bool) {
   if (!fl(a)) { return; }
   let j = i + 2u;
   let v = fall_v(a);
-  // a soap-coated oil droplet (see tick_soap) stays put in water: water
-  // doesn't sink past it
-  let held = lq(a) && gt((*c)[j]) == OIL && gd((*c)[j]) == 1u;
+  // a soap-coated oil droplet (see tick_amph) stays put in water: liquids
+  // don't sink past it
+  let held = liq(a) && gt((*c)[j]) == OIL && gd((*c)[j]) == 1u;
   if (disp(a, (*c)[j], sink) && !held) {
     var nv = max(v, 1u);
     if (nv < 7u && (roll(b, i, 70u) % FALL_ACCEL_ODDS) == 0u) { nv += 1u; }
@@ -131,6 +132,14 @@ fn fall(c: ptr<function, Cells>, i:u32, b: Block, sink:bool) {
     // a waterfall carves a plunge pool and heaps the sand around it
     (*c)[i] = motion((*c)[j], 0u, (roll(b, i, 76u) & 1u) == 1u, 3u);
     (*c)[j] = motion(a, 0u, side_r(a), 0u);
+  } else if (v > 0u && ((lq(a) && amph((*c)[j])) || (amph(a) && lq((*c)[j])))) {
+    // Falling water passes through soap and lipid (rain falls through a film),
+    // and falling soap or lipid plunges into water, slowing to a stop 1 in
+    // AMPH_PLUNGE_ODDS steps (resting, they weigh the same: see weight)
+    var nv = 1u;
+    if (amph(a) && (roll(b, i, 126u) % AMPH_PLUNGE_ODDS) == 0u) { nv = 0u; }
+    (*c)[i] = (*c)[j];
+    (*c)[j] = motion(a, nv, side_r(a), 0u);
   } else if (v > 0u) {
     // a grain resting on one still falling keeps pace with it (water lands at
     // once, so a body of water is never all marked as falling and can flow)
@@ -734,20 +743,157 @@ fn tick_plant(cin: Cells, m: ptr<function, Moms>, d: ptr<function, Dists>, k: pt
   return c;
 }
 
-// SOAP: one end of a soap molecule likes water and the other oil, so soap
-// mixes into both: now and then it trades places with an oil or water cell in
-// its block, and where it touches both, an oil cell and a water cell trade
-// places, and the oil comes away coated in soap (data 1): a droplet that drifts
-// through the water instead of floating back up (see tick_oil), so soap at an
-// oil-water boundary churns oil droplets into the water (an emulsion).
-fn tick_soap(cin: Cells, i:u32, b: Block) -> Cells {
+// ─── AMPHIPHILES: SOAP AND LIPID ───
+// Each molecule has a head (likes water) pointing one of 8 ways (see head) and
+// a tail opposite it (likes oil, air and other tails). amph_pair scores a
+// molecule against a neighbor; amph_site sums every pair around a cell. A
+// molecule turns, or swaps places with a block neighbor, when that lowers the
+// energy, and uphill with chance exp(-dE / AMPH_TEMP) (Metropolis), so it
+// settles into structures without freezing. Energies are in tenths.
+
+// The cell at (x, y): this block's (as it stands now) or, outside it, the
+// read-only grid (a halo read; those cells may be moving this step too)
+fn at(c: Cells, b: Block, x:u32, y:u32) -> u32 {
+  if (x >= b.bx && x < b.bx + 2u && y >= b.by && y < b.by + 2u) { return c[(y - b.by) * 2u + (x - b.bx)]; }
+  return gi[idx(x, y)];
+}
+fn dir_v(k:u32) -> vec2f { let o = vec2f(dir_off(k)); return o / length(o); }
+fn amph_crowd(a:u32) -> f32 { return f32(select(LIPID_CROWD, SOAP_CROWD, gt(a) == SOAP)) * 0.1; }
+fn amph_edge(a:u32) -> f32 { return f32(select(LIPID_EDGE, SOAP_EDGE, gt(a) == SOAP)) * 0.1; }
+fn amph_align(a:u32) -> f32 { return f32(select(LIPID_ALIGN, SOAP_ALIGN, gt(a) == SOAP)) * 0.1; }
+
+// Molecule a against a plain neighbor n in direction e (unit vector from a)
+fn amph_side(a:u32, n:u32, e:vec2f) -> f32 {
+  let s = dot(dir_v(head(a)), e);
+  let hs = max(s, 0.0);
+  let ts = max(-s, 0.0);
+  let t = gt(n);
+  // water at its side touches the oily core of a layer: the open edge of a
+  // membrane, which lipid would rather close up
+  if (t == WATER) { return (f32(AMPH_TAIL_WATER) * ts - f32(AMPH_HEAD_WATER) * hs) * 0.1 + amph_edge(a) * max(1.0 - 2.0 * s * s, 0.0); }
+  if (t == OIL)   { return (f32(AMPH_HEAD_OIL) * hs - f32(AMPH_TAIL_OIL) * ts) * 0.1; }
+  if (t == EMPTY) { return f32(AMPH_HEAD_AIR) * hs * 0.1; }
+  return 0.0;
+}
+
+// The energy of cells a and n, n in direction e from a (zero unless one is a
+// molecule). Two molecules: tails facing each other attract, a head with a
+// molecule beside or in front of it is crowded (by its own CROWD), and side
+// neighbors pointing the same way align (stiffness)
+fn amph_pair(a:u32, n:u32, e:vec2f) -> f32 {
+  let aa = amph(a);
+  let an = amph(n);
+  if (aa && an) {
+    let ha = dir_v(head(a));
+    let hn = dir_v(head(n));
+    let sa = dot(ha, e);
+    let sn = -dot(hn, e);
+    let tails = f32(AMPH_TAILS) * 0.1 * max(-sa, 0.0) * max(-sn, 0.0);
+    let crowded = amph_crowd(a) * clamp(sa + 0.5, 0.0, 1.0) + amph_crowd(n) * clamp(sn + 0.5, 0.0, 1.0);
+    let aligned = 0.5 * (amph_align(a) + amph_align(n)) * dot(ha, hn) * max(1.0 - 2.0 * sa * sa, 0.0); // side by side only
+    return crowded - tails - aligned;
+  }
+  if (aa) { return amph_side(a, n, e); }
+  if (an) { return amph_side(n, a, -e); }
+  return 0.0;
+}
+
+// Diagonal neighbors count 1/sqrt2 as much
+fn dir_w(k:u32) -> f32 { return select(1.0, 0.7071, (k & 1u) == 1u); }
+
+// Every pair energy around (x, y)
+fn amph_site(c: Cells, b: Block, x:u32, y:u32) -> f32 {
+  let a = at(c, b, x, y);
+  var e = 0.0;
+  for (var k = 0u; k < 8u; k = k + 1u) {
+    let o = dir_off(k);
+    let n = at(c, b, u32(i32(x) + o.x), u32(i32(y) + o.y));
+    e += amph_pair(a, n, dir_v(k)) * dir_w(k);
+  }
+  return e;
+}
+
+fn amph_accept(de:f32, r:u32) -> bool {
+  if (de <= 0.0) { return true; }
+  return f32(r & 0xFFFFu) / 65536.0 < exp(-de / (f32(AMPH_TEMP) * 0.1));
+}
+fn with_head(c:u32, d:u32) -> u32 { return (c & ~(7u << 8u)) | ((d & 7u) << 8u); }
+// The direction (0-7) from block slot i to slot j
+fn slot_k(i:u32, j:u32) -> u32 {
+  let dx = i32(j & 1u) - i32(i & 1u);
+  let dy = i32(j >> 1u) - i32(i >> 1u);
+  for (var k = 0u; k < 8u; k = k + 1u) { if (all(dir_off(k) == vec2i(dx, dy))) { return k; } }
+  return 0u;
+}
+
+// The energy of the whole block: every pair touching it, each counted once
+fn amph_block_e(c: Cells, b: Block) -> f32 {
+  var e = 0.0;
+  for (var i = 0u; i < 4u; i = i + 1u) {
+    e += amph_site(c, b, cell_x(b.bx, i), cell_y(b.by, i));
+    for (var j = i + 1u; j < 4u; j = j + 1u) { let k = slot_k(i, j); e -= amph_pair(c[i], c[j], dir_v(k)) * dir_w(k); }
+  }
+  return e;
+}
+fn amph_movable(c:u32) -> bool { return amph(c) || lq(c) || gt(c) == OIL; }
+
+// Drift: the block's two columns (or rows) trade places, molecules keeping
+// their headings, so a pair of molecules (a piece of bilayer) slides a cell as
+// one; single molecules alone can't move a structure, which would freeze into
+// small pieces. Only in blocks of molecules, water and oil.
+fn amph_drift(cin: Cells, b: Block) -> Cells {
+  let c = cin;
+  if (!(amph(c[0]) || amph(c[1]) || amph(c[2]) || amph(c[3]))) { return c; }
+  if (!(amph_movable(c[0]) && amph_movable(c[1]) && amph_movable(c[2]) && amph_movable(c[3]))) { return c; }
+  let r = roll(b, 0u, 127u);
+  if ((r % AMPH_DRIFT_ODDS) != 0u) { return c; }
+  var t: Cells;
+  if (((r >> 8u) & 1u) == 0u) { t = Cells(c[1], c[0], c[3], c[2]); }
+  else { t = Cells(c[2], c[3], c[0], c[1]); }
+  if (amph_accept(amph_block_e(t, b) - amph_block_e(c, b), roll(b, 1u, 127u))) { return t; }
+  return c;
+}
+
+fn tick_amph(cin: Cells, i:u32, b: Block) -> Cells {
   var c = cin;
-  if ((roll(b, i, 103u) % SOAP_MIX_ODDS) != 0u) { return c; }
-  let j = find_neighbor(c, i, OIL, roll(b, i, 104u));
-  let k = find_neighbor(c, i, WATER, roll(b, i, 105u));
-  if (j < 4u && k < 4u) { let o = c[j]; c[j] = c[k]; c[k] = mc(OIL, 1u, gv(o)); return c; }
-  let n = select(k, j, j < 4u);
-  if (n < 4u) { sw(&c, i, n); }
+  let x = cell_x(b.bx, i);
+  let y = cell_y(b.by, i);
+
+  // Detergent: soap whose tail touches oil, with water in its block, pulls the
+  // oil into the water as a coated droplet (see tick_oil): an emulsion
+  if (gt(c[i]) == SOAP && (roll(b, i, 103u) % SOAP_MIX_ODDS) == 0u) {
+    let j = find_neighbor(c, i, OIL, roll(b, i, 104u));
+    let k = find_neighbor(c, i, WATER, roll(b, i, 105u));
+    if (j < 4u && k < 4u && dot(dir_v(head(c[i])), dir_v(slot_k(i, j))) < 0.0) {
+      let o = c[j]; c[j] = c[k]; c[k] = mc(OIL, 1u, gv(o)); return c;
+    }
+  }
+
+  // Turn: one step either way, or 1 in 4 times any direction
+  if ((roll(b, i, 120u) % AMPH_ROT_ODDS) == 0u) {
+    let r = roll(b, i, 121u);
+    var nd = (head(c[i]) + select(1u, 7u, (r & 1u) == 1u)) & 7u;
+    if ((r & 6u) == 0u) { nd = (r >> 3u) & 7u; }
+    var t = c;
+    t[i] = with_head(c[i], nd);
+    if (amph_accept(amph_site(t, b, x, y) - amph_site(c, b, x, y), roll(b, i, 122u))) { c = t; }
+  }
+
+  // Swap with a block neighbor: water, oil or another molecule
+  if ((roll(b, i, 123u) % AMPH_SWAP_ODDS) == 0u) {
+    let j = (i + 1u + roll(b, i, 124u) % 3u) & 3u;
+    let n = c[j];
+    if (lq(n) || gt(n) == OIL || (amph(n) && n != c[i])) {
+      let xj = cell_x(b.bx, j);
+      let yj = cell_y(b.by, j);
+      let k = slot_k(i, j);
+      var t = c;
+      t[i] = c[j]; t[j] = c[i];
+      let before = amph_site(c, b, x, y) + amph_site(c, b, xj, yj) - amph_pair(c[i], c[j], dir_v(k)) * dir_w(k);
+      let after = amph_site(t, b, x, y) + amph_site(t, b, xj, yj) - amph_pair(t[i], t[j], dir_v(k)) * dir_w(k);
+      if (amph_accept(after - before, roll(b, i, 125u))) { c = t; }
+    }
+  }
   return c;
 }
 
@@ -770,7 +916,7 @@ fn tick_oil(cin: Cells, i:u32, b: Block) -> Cells {
 fn tick_foam(cin: Cells, i:u32, b: Block) -> Cells {
   var c = cin;
   if ((roll(b, i, 106u) % FOAM_POP_ODDS) != 0u) { return c; }
-  if (gd(c[i]) == 1u) { c[i] = mc(SOAP, 0u, roll(b, i, 107u) & 0x23u); }
+  if (gd(c[i]) == 1u) { let r = roll(b, i, 107u); c[i] = mc(SOAP, (r >> 8u) & 7u, r & 0x23u); }
   else { c[i] = 0u; }
   return c;
 }
@@ -925,11 +1071,12 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     else if (t == SEED)  { c = tick_seed(c, i, b); dist[i] = 0u; age[i] = 0u; } // a sprout is a root, and a newborn plant
     else if (t == PLANT) { c = tick_plant(c, &m, &dist, &age, i, b); }
     else if (t == EMBER) { c = tick_ember(c, i, b); }
-    else if (t == SOAP)  { c = tick_soap(c, i, b); }
+    else if (amph(c[i])) { c = tick_amph(c, i, b); }
     else if (t == OIL)   { c = tick_oil(c, i, b); }
     else if (t == FOAM)  { c = tick_foam(c, i, b); }
   }
 
+  c = amph_drift(c, b);
   c = convection(c, b);
 
   go[idx(x, y)] = c[pos];

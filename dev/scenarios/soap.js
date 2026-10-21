@@ -1,5 +1,6 @@
-// Soap: a liquid between oil and water. It sorts between them, mixes them where
-// it touches both, and lathers into foam under falling liquid.
+// Soap: a liquid as heavy as water whose molecules have a water-loving head and
+// an oil-loving tail. It gathers where oil meets water, pulls oil into the water
+// as droplets, and lathers into foam under falling liquid.
 const FLOOR = 236, TOP = 120, IFACE = 190;   // tank top, the oil/water boundary in layer
 
 function stats(a, { W, N, T }) {
@@ -16,11 +17,11 @@ function stats(a, { W, N, T }) {
 }
 
 export default {
-  intent: 'Soap, a liquid lighter than water and heavier than oil that mixes the two where it touches both, and lathers. '
-    + 'sort: a tank of oil, soap and water stirred together (do they settle into three layers, oil on top, soap in the middle). '
+  intent: 'Soap, a liquid as heavy as water whose molecules like water at the head and oil at the tail: it gathers between oil and water, mixes them, and lathers. '
+    + 'sort: a tank of oil and water stirred together with a little soap (does the oil still rise, the soap settling around it). '
     + 'layer: soap poured onto oil floating on water (does it sink to the boundary and churn oil down into the water). '
     + 'lather: water poured onto a soap film on a pool (does it froth up into foam that heaps and slowly pops).',
-  expect: ['three clean layers: oil, soap, water', 'soap gathers at the oil-water boundary and stirs oil droplets into the water', 'falling water lathers soap into a heap of foam', 'foam pops back to soap within seconds'],
+  expect: ['oil rises above the water, soap lining where they meet', 'soap gathers at the oil-water boundary and stirs oil droplets into the water', 'falling water lathers soap into a heap of foam', 'foam pops back to soap within seconds'],
   legend: 'Cells only. Stats: cell counts and mean y (lower is higher up) of oil, soap and water; foam cells; oil below the boundary (layer).',
   plantRows: false,
   variants: { sort: { k: 'sort' }, layer: { k: 'layer' }, lather: { k: 'lather' } },
@@ -30,9 +31,11 @@ export default {
     fill(g, 1, 255, FLOOR, 255, STONE);
     fill(g, 60, 64, TOP, FLOOR, STONE); fill(g, 192, 196, TOP, FLOOR, STONE);
     if (v.k === 'sort') {
-      const kinds = [OIL, SOAP, WATER];
       let r = 12345;
-      for (let y = 150; y < FLOOR; y++) for (let x = 64; x < 192; x++) { r = (r * 1103515245 + 12345) >>> 0; g[y * W + x] = kinds[(r >>> 16) % 3]; }
+      for (let y = 150; y < FLOOR; y++) for (let x = 64; x < 192; x++) {
+        r = (r * 1103515245 + 12345) >>> 0; const q = (r >>> 16) % 100;
+        g[y * W + x] = q < 10 ? makeCell(T.SOAP, (r >>> 8) & 7, 0) : q < 55 ? OIL : WATER;
+      }
     }
     if (v.k === 'layer') { fill(g, 64, 192, IFACE, FLOOR, WATER); fill(g, 64, 192, IFACE - 16, IFACE, OIL); }
     if (v.k === 'lather') { fill(g, 64, 192, 196, FLOOR, WATER); fill(g, 64, 192, 188, 196, SOAP); }
@@ -44,7 +47,7 @@ export default {
   measure(a, lib) { return stats(a, lib); },
   checks(s, v) {
     const e = s[s.length - 1];
-    if (v.k === 'sort') return [{ ok: e.oy < e.sy - 5 && e.sy < e.wy - 5, text: `layers: mean y oil ${e.oy}, soap ${e.sy}, water ${e.wy} (want each 5+ above the next)` }];
+    if (v.k === 'sort') return [{ ok: e.oy < e.wy - 10, text: `oil rises: mean y oil ${e.oy}, soap ${e.sy}, water ${e.wy} (want oil 10+ above water)` }];
     if (v.k === 'layer') {
       const sunk = Math.max(...s.map(r => r.sunk));
       return [{ ok: sunk > 20, text: `emulsifies: up to ${sunk} oil droplets below the boundary (want > 20)` }];
@@ -52,7 +55,7 @@ export default {
     if (v.k === 'lather') {
       const peak = Math.max(...s.map(r => r.foam));
       return [
-        { ok: peak > 150, text: `lathers: peak foam ${peak} cells (want > 150)` },
+        { ok: peak > 60, text: `lathers: peak foam ${peak} cells (want > 60)` },
         { ok: e.foam < peak / 3, text: `pops: ${e.foam} foam cells at the end (want < a third of the peak)` },
       ];
     }

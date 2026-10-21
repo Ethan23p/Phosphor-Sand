@@ -46,6 +46,9 @@ fn gc(cell: u32) -> vec3f {
 }
 
 @fragment fn fs(inp: V) -> @location(0) vec4f {
+  // position in cells, and how many cells one screen pixel spans (for 1px edges)
+  let cf = inp.uv * vec2f(f32(p.w), f32(p.h));
+  let px = fwidth(cf);
   let gx = u32(inp.uv.x * f32(p.w));
   let gy = u32(inp.uv.y * f32(p.h));
   if (gx >= p.w || gy >= p.h) { return ${BG}; }
@@ -64,6 +67,16 @@ fn gc(cell: u32) -> vec3f {
   // Ember glow: gentle pulse
   if (gt(cell) == EMBER) {
     col = col * (0.8 + 0.4 * f32(gd(cell)) / 200.0);
+  }
+
+  // Soap and lipid: a 1px white edge on the head side (two edges for a
+  // diagonal head), so molecules show which way they face
+  if (amph(cell)) {
+    let o = dir_off(head(cell));
+    let f = fract(cf);
+    let edge = (o.x > 0 && 1.0 - f.x < px.x) || (o.x < 0 && f.x < px.x)
+            || (o.y > 0 && 1.0 - f.y < px.y) || (o.y < 0 && f.y < px.y);
+    if (edge) { col = mix(col, vec3f(1.0), 0.85); }
   }
 
   // CRT effects

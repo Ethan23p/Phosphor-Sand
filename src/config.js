@@ -7,7 +7,7 @@ export const WORKGROUP = 16;
 // Particle type IDs. Emitted into WGSL as `const SAND:u32 = 1u;` etc.
 export const T = {
   EMPTY: 0, SAND: 1, WATER: 2, STONE: 3, FIRE: 4,
-  SMOKE: 5, PLANT: 6, SEED: 7, EMBER: 8, STEAM: 9, OIL: 10, SOAP: 11, FOAM: 12,
+  SMOKE: 5, PLANT: 6, SEED: 7, EMBER: 8, STEAM: 9, OIL: 10, SOAP: 11, FOAM: 12, LIPID: 13,
 };
 
 // Simulation tuning. Emitted into WGSL as u32 consts.
@@ -47,11 +47,30 @@ export const TUNING = {
   FLOW_TURN_ODDS: 4,     // water flowing into other water turns around 1 in N times (at a wall, always)
   SPILL: 3,              // cells (of 3) of sideways momentum flowing water carries off a ledge as it falls
   OIL_FLOW_ODDS: 3,      // oil flows sideways 1 in N steps (it's thick); it floats on water
-  SOAP_MIX_ODDS: 8,      // soap mixes with oil or water beside it 1 in N steps; touching both, it pulls a coated oil droplet into the water
+  SOAP_MIX_ODDS: 8,      // soap whose tail touches oil, with water in its block, pulls a coated oil droplet into the water 1 in N steps
   EMULSION_ODDS: 1800,   // a soap-coated oil droplet drifts in water until it loses its coating, 1 in N steps (~10s), then floats up
-  FOAM_ODDS: 2,          // water falling fast onto soap whips it into foam 1 in N times
+  FOAM_ODDS: 1,          // water falling fast onto soap whips it into foam 1 in N times
   FOAM_POP_ODDS: 450,    // foam pops (bubbles to air, films back to soap) 1 in N steps: ~2.5s
+  AMPH_PLUNGE_ODDS: 6,   // soap or lipid falling into water plunges on, stopping 1 in N steps (they're as heavy as water)
   ERODE_ODDS: 8,         // water running over sand (or falling hard onto it) kicks up a grain 1 in N times
+
+  // ── Amphiphiles (soap, lipid): energies in tenths, see amph_pair in sim ──
+  AMPH_TEMP: 10,         // temperature: an uphill move of this much energy is taken 1 in e times
+  AMPH_HEAD_WATER: 10,   // a head facing water (good)
+  AMPH_TAIL_WATER: 25,   // a tail facing water (bad: the hydrophobic push that makes everything assemble)
+  AMPH_HEAD_OIL: 10,     // a head facing oil (bad)
+  AMPH_TAIL_OIL: 10,     // a tail facing oil (good)
+  AMPH_HEAD_AIR: 10,     // a head facing air (bad; tails don't mind air, so a film on water points its tails up)
+  AMPH_TAILS: 20,        // two tails facing each other (good)
+  SOAP_CROWD: 20,        // a soap head with another molecule beside or in front of it (bad: soap wants room, so it curls into micelles)
+  SOAP_ALIGN: 2,         // side neighbors pointing the same way (good: stiffness)
+  SOAP_EDGE: 0,          // water beside a molecule (bad: the open edge of a layer)
+  LIPID_CROWD: 3,        // lipid heads tolerate neighbors...
+  LIPID_ALIGN: 25,       // ...and line up: flat bilayers...
+  LIPID_EDGE: 25,        // ...that close up to hide their edges: vesicles
+  AMPH_ROT_ODDS: 1,      // an amphiphile tries a turn 1 in N steps
+  AMPH_SWAP_ODDS: 2,     // and a swap with a block neighbor 1 in N steps
+  AMPH_DRIFT_ODDS: 2,    // a block holding molecules tries sliding its columns or rows past each other 1 in N steps (see amph_drift)
 
   // ── Fire, water, steam ──
   IGNITE_ODDS: 8,        // fire's chance per step to ignite plants/seeds in its block
@@ -76,6 +95,7 @@ export const P = {
   brightCyan:[.369,.992,.969], hotPink:[1,.365,.8], brightYellow:[.992,.996,.537],
   white:[1,1,1], mist:[.722,.784,.863], amber:[.706,.475,.255], darkAmber:[.522,.333,.212],
   lavender:[.776,.682,.925], paleLavender:[.875,.827,.973], foam:[.937,.933,.976],
+  soapBlue:[.471,.502,.973], paleSoapBlue:[.592,.631,.996], lipidPink:[.973,.541,.769], paleLipidPink:[.988,.682,.851],
 };
 
 // Up to 4 color variants per type (cycled if fewer). Indexed by type ID.
@@ -91,8 +111,9 @@ export const CMAP = {
   [T.EMBER]: [P.peach, P.pink, P.sand, P.hotPink],
   [T.STEAM]: [P.mist, P.lightBlue],
   [T.OIL]:   [P.amber, P.darkAmber],
-  [T.SOAP]:  [P.lavender, P.paleLavender],
-  [T.FOAM]:  [P.foam, P.white, P.paleLavender],
+  [T.SOAP]:  [P.soapBlue, P.paleSoapBlue],
+  [T.FOAM]:  [P.foam, P.white, P.paleSoapBlue],
+  [T.LIPID]: [P.lipidPink, P.paleLipidPink],
 };
 
 // Toolbar brushes, in display order. Swatch = first color of the type.
@@ -103,6 +124,7 @@ export const TOOLS = [
   { type: T.STONE, title: 'Stone',  density: 256 },
   { type: T.OIL,   title: 'Oil',    density: 160 },
   { type: T.SOAP,  title: 'Soap',   density: 160 },
+  { type: T.LIPID, title: 'Lipid',  density: 160 },
   { type: T.FIRE,  title: 'Fire',   density: 200 },
   { type: T.SEED,  title: 'Seed',   density: 40 },
   { type: T.EMBER, title: 'Ember',  density: 90 },

@@ -67,3 +67,17 @@ Expectations for sim changes:
 1. Add it to `T`, `CMAP` and optionally `TOOLS`.
 2. Write `tick_<type>` in `sim.wgsl.js` and dispatch it in `main`'s visit loop.
 3. Set its starting data in `brush.wgsl.js` if it needs any.
+
+## Build in progress: amphiphiles (soap and lipid)
+
+Goal: soap and lipid molecules with a head (likes water) and a tail (likes oil, air and other tails) that self-assemble: soap into micelles that grab oil, lipid into bilayer membranes and vesicles. Progress is tracked in the git log (commits prefixed `Amphiphiles:`).
+
+- **Stage A, oriented single cells.**
+  - Soap (blue) and lipid (pink) cells store a head direction (8 directions) in `data` bits 0-2; bits 3+ are kept for stage B.
+  - An energy model scores each cell against its 8 neighbors: head toward water good, tail toward water bad, tails meeting tails good, heads crowding other heads bad, side neighbors pointing the same way good.
+  - Two moves, accepted Metropolis-style with a temperature: a cell rotates (changes only itself), or swaps places with a block neighbor (water, oil, another amphiphile). Neighbors outside the block are read from `gi` (read-only halo).
+  - Soap and lipid share the model and differ in their knobs: soap crowds (micelles), lipid aligns (membranes).
+  - Amphiphiles weigh as much as water: neutrally buoyant, they float on water as a film and diffuse into it, and falling ones plunge in a little way.
+  - Render: a 1px white edge on the head side (one side for straight heads, two for diagonal).
+- **Stage B, two-cell molecules.** A head cell bonded to a tail cell, each storing a 3-bit pointer to its partner. A bonded cell moves only when its partner shares its block, so the block can move both and rewrite both pointers. Same energy model, with the orientation being the tail → head direction.
+- **Open concerns** are collected here as they come up and resolved at the end of the cycle.

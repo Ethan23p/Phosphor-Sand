@@ -119,7 +119,7 @@ export async function runScenario() {
     while (h.step < t * 180) { h.run(Math.min(180, t * 180 - h.step), input); await h.read(); }
     await h.snapshot(line, { mom: mod.plantRows !== false });
   }
-  h.finish(`${document.title}`);
+  h.finish(`${document.title}`, { zoom: mod.zoom && mod.zoom(v) });
   document.getElementById('strip').append(document.getElementById('cv'));
 
   const checks = mod.checks ? mod.checks(series, v) : [];
