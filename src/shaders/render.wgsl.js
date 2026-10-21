@@ -80,7 +80,7 @@ fn gc(cell: u32) -> vec3f {
   }
 
   // CRT effects
-  let sl = 0.88 + 0.12 * f32(u32(inp.pos.y) & 1u);
+  let sl = 0.88 + 0.12 * f32(u32(cf.y) & 1u);   // scanlines: alternate cell rows
   let uc = (inp.uv - 0.5) * 2.0;
   let vig = 1.0 - 0.25 * dot(uc, uc);
   col = col * vec3f(1.02, 1.0, 0.98) * sl * vig;

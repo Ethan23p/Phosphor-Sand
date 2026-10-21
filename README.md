@@ -57,6 +57,8 @@ Conservation: water becomes energy when drunk, and energy becomes structure when
 
 All tuning lives in `TUNING` in `src/config.js`, with timings at 3x (~180 steps/s).
 
+The canvas is drawn at the screen's own resolution (CSS sets its size; `main.js` sizes the backing store to it), so a cell can show detail finer than itself: soap and lipid heads are a 1px edge. Scanlines alternate cell rows.
+
 Rendering: plant brightness tracks energy, from 0.25x (nearly empty) to 1.25x at `PLANT_GLOW` and above.
 
 ## Other rules

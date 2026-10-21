@@ -21,6 +21,15 @@ async function initGPU() {
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('webgpu');
   if (!ctx) throw new Error('No WebGPU context');
+  // Draw at the screen's own resolution (CSS sets the display size), not one
+  // pixel per cell, so cells can show detail finer than a cell (soap and lipid
+  // heads are a 1px edge)
+  const fit = () => {
+    const w = Math.max(GRID_W, Math.round(canvas.clientWidth * Math.min(window.devicePixelRatio || 1, 3)));
+    canvas.width = w; canvas.height = Math.round(w * GRID_H / GRID_W);
+  };
+  fit();
+  new ResizeObserver(fit).observe(canvas);
   const fmt = navigator.gpu.getPreferredCanvasFormat();
   ctx.configure({ device, format: fmt, alphaMode: 'opaque' });
   dbg(`Canvas: ${fmt}`);
