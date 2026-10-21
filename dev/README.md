@@ -53,7 +53,8 @@ Stats per region:
 |---|---|---|
 | `gravity` | `fall`, `pile`, `dam`, `sink`, `utube`, `fountain`, `erode` | Blobs of each material dropped from the top should speed up. Sand poured from a point should pile below 45°. Sand should sink and seeds float. Targets that fail today because only surface water moves (no pressure): a tall water column should level within a few seconds (`dam`), a full tank and an empty one joined under a wall should level (`utube`), a high tank should spout from a low outlet (`fountain`), and a stream on a sand slope should carve it and carry sand to its foot (`erode`; the stream pools into a still mound instead of running). |
 | `oil` | `float`, `pour`, `slick`, `ember` | Oil under water should rise and settle as a layer on top. Poured oil should heap and spread slower than water. A flame on a slick should run across it and burn it off, leaving the water. Embers dropped into oil should sink and set it alight. |
-| `soap` | `sort`, `layer`, `lather` | A stirred tank of oil, soap and water should settle into three layers. Soap poured onto oil on water should sink to the boundary, spread along it and churn oil droplets into the water. Water poured onto a soap film should froth into foam that pops within seconds (the foam mixes into the poured water mound rather than heaping cleanly). |
+| `soap` | `sort`, `layer`, `lather` | Oil stirred into water with a little soap should still rise. Soap poured onto oil on water should sink to the boundary and churn oil droplets into the water. Water poured onto a soap film should froth into foam that pops within seconds (weaker than it was: soap is neutrally buoyant now, so the pour buries most of it). |
+| `amph` | `micelle`, `vesicle`, `dense`, `film`, `oil` | Soap stirred through water should curl into micelles, heads out. Lipid (12%, or 25% in `dense`) should line up into bilayers that grow into membranes and close into rings. A film poured onto a pool should lie tails up and work down as bilayer sheets. Soap with oil should emulsify it. A zoom row shows the molecules (white edge: head). |
 
 ## Writing a scenario
 
@@ -73,6 +74,7 @@ export default {
   checks: (series, v) => [{ ok, text }],                               // series: one measure() per snapshot
   measure(a, lib, v) {},           // optional: this scenario's own numbers per snapshot ({ name: number }), replacing the plant stats
   plantRows: false,                // optional: strip shows only the cells row
+  zoom: v => ({ x, y, w, h }),     // optional: a last row magnifying this part of the grid
 };
 ```
 

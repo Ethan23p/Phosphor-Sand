@@ -68,11 +68,29 @@ Rendering: plant brightness tracks energy, from 0.25x (nearly empty) to 1.25x at
   - Erosion: water spilling over a sand edge kicks the edge grain into the stream 1 in `ERODE_ODDS` times, and fast falling water splashes up the grain it lands on. Kicked grains skid on through water while they have momentum, so they're carried a little way downstream.
   - Known limit: only surface water moves, so a tall body of water levels slowly, connected pools don't level and nothing spouts (`gravity/dam`, `utube`, `fountain` fail on purpose), and a stream pools into a still mound rather than running, which keeps erosion weak (`gravity/erode`). Fixing it needs a pressure mechanism that carries water through a body.
 - Oil is a thick liquid: it falls and flows like water but sideways only 1 in `OIL_FLOW_ODDS` steps, so it heaps before it spreads. Water sinks through it, so oil floats up to the top of any pool; sand and embers sink through it, and seeds rest on it. Fire or a touching ember sets it alight (it burns `OIL_FIRE_LIFE` plus a bit), so a slick burns off a pool and an ember dropped in a tank of oil sets the whole lot ablaze.
-- Soap is a liquid lighter than water and heavier than oil, so poured into a tank it settles between them. Liquids sort sideways too (a heavier one flows under a lighter one beside it), so soap spreads into a layer at the boundary. Its molecules like water at one end and oil at the other, so it mixes into both (1 in `SOAP_MIX_ODDS` steps it trades places with one), and where it touches both it pulls a soap-coated oil droplet down into the water. Coated droplets drift through the water until they lose their coating (1 in `EMULSION_ODDS` steps, ~10 s) and float back up: an emulsion.
+- Soap (blue) and lipid (pink) are amphiphiles: each cell is a molecule with a head that likes water and a tail that likes oil, air and other tails. The head points one of 8 ways, drawn as a white edge on that side (two edges for a diagonal). See Amphiphiles below.
+- Soap whose tail touches oil, with water in its block, pulls a soap-coated oil droplet into the water (1 in `SOAP_MIX_ODDS` steps). Coated droplets drift through the water until they lose their coating (1 in `EMULSION_ODDS` steps, ~10 s) and float back up: an emulsion.
 - Water falling fast onto soap whips it into foam: the soap becomes a film cell, plus bubbles in the empty cells around it. Foam rises through liquid, settles slowly through air and heaps; it pops after ~2.5 s (`FOAM_POP_ODDS`), bubbles back to air and films back to soap.
 - Smoke and steam rise and drift sideways; steam bubbles up through water, oil and soap.
 - Fire or ember touching water boils it to steam; steam condenses back to water (falls as rain), so water is conserved through the cycle.
 - The brush (GPU) only fills empty cells; the eraser clears everything. Neither touches the 1px stone border around the grid, which the sim keeps as stone. Strokes are queued per pointer event, so fast swipes and quick taps are drawn whole.
+
+## Amphiphiles
+
+Soap and lipid molecules settle into structures by lowering an energy, Metropolis-style. Each step a molecule tries to turn (one step either way, or 1 in 4 times any direction) and to swap places with a block neighbor (water, oil or another molecule). It takes a move that lowers the energy, and an uphill one with chance exp(-ΔE / `AMPH_TEMP`), so structures form without freezing. A block of molecules, water and oil also tries sliding its two columns (or rows) past each other, molecules keeping their headings, so pieces of membrane drift as a whole (`AMPH_DRIFT_ODDS`). Energies are scored against all 8 neighbors (diagonals count 1/√2), reading neighbors outside the block from the previous grid.
+
+| Pair | Energy (tenths) |
+|---|---|
+| Head facing water / oil / air | `-AMPH_HEAD_WATER` / `+AMPH_HEAD_OIL` / `+AMPH_HEAD_AIR` |
+| Tail facing water / oil | `+AMPH_TAIL_WATER` / `-AMPH_TAIL_OIL` |
+| Water beside a molecule (the open edge of a layer) | `+SOAP_EDGE` / `+LIPID_EDGE` |
+| Two tails facing each other | `-AMPH_TAILS` |
+| A head with a molecule beside or in front of it | `+SOAP_CROWD` / `+LIPID_CROWD` |
+| Side neighbors pointing the same way | `-SOAP_ALIGN` / `-LIPID_ALIGN` |
+
+The two differ only in their knobs. Soap crowds, so it curls into micelles: 2×2 clusters, heads out. Lipid aligns and dislikes open edges, so it lines up into bilayers (two rows, tails in, white heads on both faces) that grow into long membranes with bends and close into rings (vesicles) with water inside.
+
+Both weigh as much as water. On water they float as a film (tails up, into the air) and enter it by their own moves (a poured film works down as hanging bilayer sheets); falling ones plunge in a little way (`AMPH_PLUNGE_ODDS`). Falling water passes through them, sand sinks through them, and they sink through oil.
 
 ## Dev scenarios
 
@@ -83,13 +101,13 @@ Rendering: plant brightness tracks energy, from 0.25x (nearly empty) to 1.25x at
 - `reservoir`: a mound drowned on one side.
 - `meadow`: phone-style watering.
 
-`node dev/strip.mjs elements` runs `gravity` (fall, pile, dam, sink, utube, fountain, erode): how the loose materials fall, pile, level, float and erode; `oil` (float, pour, slick, ember): oil floating on water, spreading and burning; and `soap` (sort, layer, lather): layering, emulsifying and foam.
+`node dev/strip.mjs elements` runs `gravity` (fall, pile, dam, sink, utube, fountain, erode): how the loose materials fall, pile, level, float and erode; `oil` (float, pour, slick, ember): oil floating on water, spreading and burning; `soap` (sort, layer, lather): oil rising through soapy water, emulsifying and foam; and `amph` (micelle, vesicle, dense, film, oil): soap and lipid self-assembling, with a zoomed row to see the molecules.
 
 Scenarios live in `dev/scenarios/`, and any run takes tuning overrides (`BLOOM_E=4`). See [dev/README.md](dev/README.md) for the workflow, how to read a strip, and how to write a scenario. Older standalone pages (`flow`, `dist`, `trickle`, `pool`, `garden`, `elements`) still run through the same tool, e.g. `node dev/strip.mjs garden.html`.
 
 ## Cell encoding
 
-One `u32` per cell: `type | data << 8 | variant << 16`. `data` is per-type (fire/smoke/ember lifetime, plant energy; oil 1 = soap-coated droplet; foam 1 = film holding soap, 0 = air bubble). `variant` bits 0-1 pick a color. Loose cells (sand, water, oil, soap, seeds, embers) keep their motion state in variant bits 2-7: fall speed (bits 2-4, 0 at rest), sideways direction (bit 5) and sideways momentum (bits 6-7). Plants keep their energy as 14 bits (`data` plus variant bits 2-7, in `ENERGY_RES` fine units). Plant momentum and root distance live in a parallel buffer, two `u32`s per cell: signed 16-bit momentum x and y, then the distance (in half cells, capped at 255; bits 0-7) with the age packed above it (bits 8-15 the cell's own, 16-23 the plant's).
+One `u32` per cell: `type | data << 8 | variant << 16`. `data` is per-type (fire/smoke/ember lifetime, plant energy; oil 1 = soap-coated droplet; foam 1 = film holding soap, 0 = air bubble; soap and lipid: the head direction in bits 0-2, E SE S SW W NW N NE). `variant` bits 0-1 pick a color. Loose cells (sand, water, oil, soap, seeds, embers) keep their motion state in variant bits 2-7: fall speed (bits 2-4, 0 at rest), sideways direction (bit 5) and sideways momentum (bits 6-7). Plants keep their energy as 14 bits (`data` plus variant bits 2-7, in `ENERGY_RES` fine units). Plant momentum and root distance live in a parallel buffer, two `u32`s per cell: signed 16-bit momentum x and y, then the distance (in half cells, capped at 255; bits 0-7) with the age packed above it (bits 8-15 the cell's own, 16-23 the plant's).
 
 ## Adding a particle type
 
