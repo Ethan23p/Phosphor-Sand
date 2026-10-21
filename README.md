@@ -89,8 +89,9 @@ Soap and lipid molecules settle into structures by lowering an energy, Metropoli
 | Two tails facing each other | `-AMPH_TAILS` |
 | A head with a molecule beside or in front of it | `+SOAP_CROWD` / `+LIPID_CROWD` |
 | Side neighbors pointing the same way | `-SOAP_ALIGN` / `-LIPID_ALIGN` |
+| A head pointing into a molecule's side (a T-junction) | `+SOAP_JUNCTION` / `+LIPID_JUNCTION` |
 
-The two differ only in their knobs. Soap crowds, so it curls into micelles: 2×2 clusters, heads out. Lipid aligns and dislikes open edges, so it lines up into bilayers (two rows, tails in, white heads on both faces) that grow into long membranes with bends and close into rings (vesicles) with water inside.
+The two differ only in their knobs. Soap crowds, so it curls into micelles: 2×2 clusters, heads out. Lipid aligns and dislikes open edges and junctions (the end of one layer butting into the face of another costs about what an open edge does, while a corner, where layers meet tail to side, is free), so it lines up into bilayers (two rows, tails in, white heads on both faces) that grow into long membranes with bends and close into rings (vesicles) with water inside.
 
 Lipid also bonds to oil: a lipid with a loose oil cell at its tail bonds to it 1 in `LIPID_BOND_ODDS` steps, making a two-cell molecule (pink head, amber oil tail). The head's direction doubles as its pointer to the tail, and the tail stores the direction back. The energy treats the tail as part of the molecule facing its head, so pairs stack into four-cell-thick membranes (head, tail, tail, head). A bonded cell never moves on its own: only when both halves share a block, by moving one half into a third slot of the block (every slot of a block touches every other, so the bond holds) or by the block's drift, with the pointers turned to match. A pair comes apart 1 in `LIPID_UNBOND_ODDS` steps (~5 min), when its partner is gone (burned, say), or out of the water.
 

@@ -82,6 +82,7 @@ Goal: soap and lipid molecules with a head (likes water) and a tail (likes oil, 
   - Render: a 1px white edge on the head side (one side for straight heads, two for diagonal).
 - **Stage B, two-cell molecules.** Done: lipid bonds to an oil tail. A bonded cell moves only when its partner shares its block, so the block can move both and rewrite both pointers. Same energy model, with the orientation being the tail → head direction.
 - **Open concerns** (for the end of the cycle):
+  - T-junctions (fixed): a bilayer's end butting into another's face hid its open edge for free, so membranes branched like circuit traces. `LIPID_JUNCTION` now charges a head pointing into a side.
   - Coarsening is slow. Membranes grow over minutes and vesicles are still rare; two-cell lipids mostly stay short four-thick stubs.
   - Lather is weaker: soap is neutrally buoyant now, so a pour buries the soap film (`soap/lather` threshold lowered to 60).
   - In the `amph/oil` mix, oil mostly sits as single coated cells rather than inside micelles.

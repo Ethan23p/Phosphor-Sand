@@ -767,6 +767,7 @@ fn dir_v(k:u32) -> vec2f { let o = vec2f(dir_off(k)); return o / length(o); }
 fn amph_crowd(a:u32) -> f32 { return f32(select(LIPID_CROWD, SOAP_CROWD, gt(a) == SOAP)) * 0.1; }
 fn amph_edge(a:u32) -> f32 { return f32(select(LIPID_EDGE, SOAP_EDGE, gt(a) == SOAP)) * 0.1; }
 fn amph_align(a:u32) -> f32 { return f32(select(LIPID_ALIGN, SOAP_ALIGN, gt(a) == SOAP)) * 0.1; }
+fn amph_junction(a:u32) -> f32 { return f32(select(LIPID_JUNCTION, SOAP_JUNCTION, gt(a) == SOAP)) * 0.1; }
 
 // Molecule a against a plain neighbor n in direction e (unit vector from a)
 fn amph_side(a:u32, n:u32, e:vec2f) -> f32 {
@@ -784,8 +785,10 @@ fn amph_side(a:u32, n:u32, e:vec2f) -> f32 {
 
 // The energy of cells a and n, n in direction e from a (zero unless one is a
 // molecule). Two molecules: tails facing each other attract, a head with a
-// molecule beside or in front of it is crowded (by its own CROWD), and side
-// neighbors pointing the same way align (stiffness)
+// molecule beside or in front of it is crowded (by its own CROWD), side
+// neighbors pointing the same way align (stiffness), and a head pointing into a
+// molecule's side is a junction (the end of one layer butting into the face of
+// another, which costs about what an open edge does)
 fn amph_pair(a:u32, n:u32, e:vec2f) -> f32 {
   let aa = amph_e(a);
   let an = amph_e(n);
@@ -797,7 +800,9 @@ fn amph_pair(a:u32, n:u32, e:vec2f) -> f32 {
     let tails = f32(AMPH_TAILS) * 0.1 * max(-sa, 0.0) * max(-sn, 0.0);
     let crowded = amph_crowd(a) * clamp(sa + 0.5, 0.0, 1.0) + amph_crowd(n) * clamp(sn + 0.5, 0.0, 1.0);
     let aligned = 0.5 * (amph_align(a) + amph_align(n)) * dot(ha, hn) * max(1.0 - 2.0 * sa * sa, 0.0); // side by side only
-    return crowded - tails - aligned;
+    // a head pointing into a side: a T-junction (at a corner they meet tail to side)
+    let junction = amph_junction(a) * max(1.0 - 2.0 * sa * sa, 0.0) * max(sn, 0.0) + amph_junction(n) * max(1.0 - 2.0 * sn * sn, 0.0) * max(sa, 0.0);
+    return crowded + junction - tails - aligned;
   }
   if (aa) { return amph_side(a, n, e); }
   if (an) { return amph_side(n, a, -e); }
