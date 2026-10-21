@@ -90,6 +90,8 @@ Soap and lipid molecules settle into structures by lowering an energy, Metropoli
 
 The two differ only in their knobs. Soap crowds, so it curls into micelles: 2×2 clusters, heads out. Lipid aligns and dislikes open edges, so it lines up into bilayers (two rows, tails in, white heads on both faces) that grow into long membranes with bends and close into rings (vesicles) with water inside.
 
+Lipid also bonds to oil: a lipid with a loose oil cell at its tail bonds to it 1 in `LIPID_BOND_ODDS` steps, making a two-cell molecule (pink head, amber oil tail). The head's direction doubles as its pointer to the tail, and the tail stores the direction back. The energy treats the tail as part of the molecule facing its head, so pairs stack into four-cell-thick membranes (head, tail, tail, head). A bonded cell never moves on its own: only when both halves share a block, by moving one half into a third slot of the block (every slot of a block touches every other, so the bond holds) or by the block's drift, with the pointers turned to match. A pair comes apart 1 in `LIPID_UNBOND_ODDS` steps (~5 min), when its partner is gone (burned, say), or out of the water.
+
 Both weigh as much as water. On water they float as a film (tails up, into the air) and enter it by their own moves (a poured film works down as hanging bilayer sheets); falling ones plunge in a little way (`AMPH_PLUNGE_ODDS`). Falling water passes through them, sand sinks through them, and they sink through oil.
 
 ## Dev scenarios
@@ -101,13 +103,13 @@ Both weigh as much as water. On water they float as a film (tails up, into the a
 - `reservoir`: a mound drowned on one side.
 - `meadow`: phone-style watering.
 
-`node dev/strip.mjs elements` runs `gravity` (fall, pile, dam, sink, utube, fountain, erode): how the loose materials fall, pile, level, float and erode; `oil` (float, pour, slick, ember): oil floating on water, spreading and burning; `soap` (sort, layer, lather): oil rising through soapy water, emulsifying and foam; and `amph` (micelle, vesicle, dense, film, oil): soap and lipid self-assembling, with a zoomed row to see the molecules.
+`node dev/strip.mjs elements` runs `gravity` (fall, pile, dam, sink, utube, fountain, erode): how the loose materials fall, pile, level, float and erode; `oil` (float, pour, slick, ember): oil floating on water, spreading and burning; `soap` (sort, layer, lather): oil rising through soapy water, emulsifying and foam; and `amph` (micelle, vesicle, dense, pair, film, oil): soap and lipid self-assembling, with a zoomed row to see the molecules.
 
 Scenarios live in `dev/scenarios/`, and any run takes tuning overrides (`BLOOM_E=4`). See [dev/README.md](dev/README.md) for the workflow, how to read a strip, and how to write a scenario. Older standalone pages (`flow`, `dist`, `trickle`, `pool`, `garden`, `elements`) still run through the same tool, e.g. `node dev/strip.mjs garden.html`.
 
 ## Cell encoding
 
-One `u32` per cell: `type | data << 8 | variant << 16`. `data` is per-type (fire/smoke/ember lifetime, plant energy; oil 1 = soap-coated droplet; foam 1 = film holding soap, 0 = air bubble; soap and lipid: the head direction in bits 0-2, E SE S SW W NW N NE). `variant` bits 0-1 pick a color. Loose cells (sand, water, oil, soap, seeds, embers) keep their motion state in variant bits 2-7: fall speed (bits 2-4, 0 at rest), sideways direction (bit 5) and sideways momentum (bits 6-7). Plants keep their energy as 14 bits (`data` plus variant bits 2-7, in `ENERGY_RES` fine units). Plant momentum and root distance live in a parallel buffer, two `u32`s per cell: signed 16-bit momentum x and y, then the distance (in half cells, capped at 255; bits 0-7) with the age packed above it (bits 8-15 the cell's own, 16-23 the plant's).
+One `u32` per cell: `type | data << 8 | variant << 16`. `data` is per-type (fire/smoke/ember lifetime, plant energy; oil 1 = soap-coated droplet; foam 1 = film holding soap, 0 = air bubble; soap and lipid: the head direction in bits 0-2, E SE S SW W NW N NE, and for lipid bit 3 = bonded to an oil tail; a bonded oil tail has bit 1 set and the direction to its head in bits 2-4). `variant` bits 0-1 pick a color. Loose cells (sand, water, oil, soap, seeds, embers) keep their motion state in variant bits 2-7: fall speed (bits 2-4, 0 at rest), sideways direction (bit 5) and sideways momentum (bits 6-7). Plants keep their energy as 14 bits (`data` plus variant bits 2-7, in `ENERGY_RES` fine units). Plant momentum and root distance live in a parallel buffer, two `u32`s per cell: signed 16-bit momentum x and y, then the distance (in half cells, capped at 255; bits 0-7) with the age packed above it (bits 8-15 the cell's own, 16-23 the plant's).
 
 ## Adding a particle type
 

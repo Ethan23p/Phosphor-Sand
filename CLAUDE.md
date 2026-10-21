@@ -14,7 +14,7 @@ Phosphor Sand is a WebGPU falling-sand toy. It's plain ES modules with no build 
 ## Testing: dev scenarios
 
 There's no unit test suite. Behavior is verified by running the real shaders on the GPU. See `dev/README.md` for the full workflow.
-- `node dev/strip.mjs elements` runs `gravity` (fall, pile, dam, sink, utube, fountain, erode) `oil` (float, pour, slick, ember) `soap` (sort, layer, lather) and `amph` (micelle, vesicle, dense, film, oil). `dam`, `utube`, `fountain` and `erode` fail on purpose: they're targets for water pressure, which needs water carried through a body (only surface water moves today).
+- `node dev/strip.mjs elements` runs `gravity` (fall, pile, dam, sink, utube, fountain, erode) `oil` (float, pour, slick, ember) `soap` (sort, layer, lather) and `amph` (micelle, vesicle, dense, pair, film, oil). `dam`, `utube`, `fountain` and `erode` fail on purpose: they're targets for water pressure, which needs water carried through a body (only surface water moves today).
 - `node dev/strip.mjs plants` runs the plant suite (`waterfall`, `pipe`, `tunnel`, `reservoir`, `meadow`, every variant; about 30 s). Name a scenario, `scenario/variant` or `page.html` to run less. Add `NAME=value` tuning overrides for sweeps and `--tag` to name the files.
 - It prints each snapshot as it lands and ends with a PASS/FAIL table from each scenario's checks. Strips (`.png`, headed by the scenario's intent) and stats (`.txt`) land in `dev/out/` (gitignored).
 - A scenario is a module in `dev/scenarios/` with `intent`, `expect`, `variants`, `build`, `input`, `regions` and `checks`. Run through `dev/scenario.html` and `dev/scenario.js`, it imports nothing browser-side.
@@ -53,7 +53,7 @@ Expectations for sim changes:
 **Cell encoding:** each cell is one `u32`: `type | data<<8 | variant<<16`.
 - Use the accessors `gt`, `gd`, `gv` and the constructor `mc` from `common.wgsl.js`; `makeCell` is the JS equivalent.
 - Loose cells (sand, water, oil, soap, lipid, seed, ember) keep a motion state in variant bits 2-7 (`fall_v`, `side_r`, `skid_v`, `motion` in `sim.wgsl.js`): fall speed, sideways direction, sideways momentum. `liq` is any liquid (water, oil, soap, lipid) and drives movement, with `weight` sorting them (oil < water = soap = lipid); `lq` is water alone (drinking, quenching, steam, erosion). Tick code that rebuilds such a cell with `mc` resets it, which is fine (it just comes to rest). The brush and condensing steam give water a random direction.
-- Soap and lipid (`amph`) keep their head direction in `data` bits 0-2 (`head`, `dir_off` in `common.wgsl.js`; `with_head` changes it). Their moves (`tick_amph`, `amph_drift`) read neighbors outside the block through `at`, a read-only halo read of `gi`.
+- Soap and lipid (`amph`) keep their head direction in `data` bits 0-2 (`head`, `dir_off` in `common.wgsl.js`; `with_head` changes it). Their moves (`tick_amph`, `amph_drift`) read neighbors outside the block through `at`, a read-only halo read of `gi`. A two-cell lipid (`bonded`: lipid data bit 3, oil data bit 1 with the direction to its head in bits 2-4; `partner_dir`, `bond_to`, `unbond`) isn't `liq` and is never a `disp` destination, so generic movement can't split it; only `tick_pair` and `amph_drift` move it, and only with both halves in the block.
 - Plant energy is 14 bits in fine units (`ENERGY_RES` per tuning unit): `data` holds the low 8, variant bits 2-7 the high 6. Use `pe`/`mp` (JS: `plantE`/`makePlant` in the harness).
 - Plant momentum and root distance share a second ping-ponged buffer (sim bindings 3 and 4, `vec2u` per cell): `.x` is signed 16-bit momentum x and y (`unpack_mom`/`pack_mom`; JS `momOf`), `.y` the root distance in half cells (bits 0-7), and the age (bits 8-15 the cell's own, 16-23 the plant's); mask with `& 255` to read each. `h.read(true)` returns them interleaved. `main` loads them into `m`/`dist` for plant slots and writes zero for every other cell, so a new plant always starts at rest; a sprouting seed gets distance 0, a bloomed cell its parent's + 2, age 0 and its parent's plant age.
 - Plant tick order: `plant_consume` → `plant_flow` (pressure and viscosity via `plant_press`, then transfer, mirror bounces and bloom) → `plant_dist` → `plant_age` (all for the whole block, right after `movement`) → `tick_plant` (retire by age, friction).
@@ -73,12 +73,17 @@ Expectations for sim changes:
 
 Goal: soap and lipid molecules with a head (likes water) and a tail (likes oil, air and other tails) that self-assemble: soap into micelles that grab oil, lipid into bilayer membranes and vesicles. Progress is tracked in the git log (commits prefixed `Amphiphiles:`).
 
-- **Stage A, oriented single cells.**
+- **Stage A, oriented single cells.** Done.
   - Soap (blue) and lipid (pink) cells store a head direction (8 directions) in `data` bits 0-2; bits 3+ are kept for stage B.
   - An energy model scores each cell against its 8 neighbors: head toward water good, tail toward water bad, tails meeting tails good, heads crowding other heads bad, side neighbors pointing the same way good.
   - Two moves, accepted Metropolis-style with a temperature: a cell rotates (changes only itself), or swaps places with a block neighbor (water, oil, another amphiphile). Neighbors outside the block are read from `gi` (read-only halo).
   - Soap and lipid share the model and differ in their knobs: soap crowds (micelles), lipid aligns (membranes).
   - Amphiphiles weigh as much as water: neutrally buoyant, they float on water as a film and diffuse into it, and falling ones plunge in a little way.
   - Render: a 1px white edge on the head side (one side for straight heads, two for diagonal).
-- **Stage B, two-cell molecules.** A head cell bonded to a tail cell, each storing a 3-bit pointer to its partner. A bonded cell moves only when its partner shares its block, so the block can move both and rewrite both pointers. Same energy model, with the orientation being the tail → head direction.
-- **Open concerns** are collected here as they come up and resolved at the end of the cycle.
+- **Stage B, two-cell molecules.** Done: lipid bonds to an oil tail. A bonded cell moves only when its partner shares its block, so the block can move both and rewrite both pointers. Same energy model, with the orientation being the tail → head direction.
+- **Open concerns** (for the end of the cycle):
+  - Coarsening is slow. Membranes grow over minutes and vesicles are still rare; two-cell lipids mostly stay short four-thick stubs.
+  - Lather is weaker: soap is neutrally buoyant now, so a pour buries the soap film (`soap/lather` threshold lowered to 60).
+  - In the `amph/oil` mix, oil mostly sits as single coated cells rather than inside micelles.
+  - Cost: `amph_drift` and `tick_pair` score the whole block (4 sites × 8 neighbors), on every thread of the block. This is fine on desktop and unprofiled on phones with a lot of soap drawn.
+  - Freed oil floats away, so two-cell lipids slowly revert to single-cell lipid unless oil is kept in the water.

@@ -29,6 +29,11 @@ fn dir_off(k:u32) -> vec2i {
   return o[k & 7u];
 }
 fn amph(c:u32) -> bool { let t = gt(c); return t == SOAP || t == LIPID; }
+// Two-cell lipid: a lipid head (data bit 3) bonded to an oil tail (data bit 1,
+// bits 2-4 the direction to its head). The head points away from its tail, so
+// the head's direction is also its pointer to its partner.
+fn bonded(c:u32) -> bool { let t = gt(c); return (t == LIPID && (gd(c) & 8u) != 0u) || (t == OIL && (gd(c) & 2u) != 0u); }
+fn partner_dir(c:u32) -> u32 { return select((gd(c) >> 2u) & 7u, (head(c) + 4u) & 7u, gt(c) == LIPID); }
 
 fn hh(xi:u32) -> u32 {
   var h = xi;

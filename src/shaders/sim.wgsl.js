@@ -69,7 +69,8 @@ fn heavy(c:u32) -> bool { let t = gt(c); return t == SAND || t == SEED || t == E
 fn em(c:u32) -> bool { return gt(c) == EMPTY; }
 fn lq(c:u32) -> bool { return gt(c) == WATER; }
 // Liquids (water, oil, soap, lipid) move alike (see fall, flow); lq is water alone
-fn liq(c:u32) -> bool { let t = gt(c); return t == WATER || t == OIL || amph(c); }
+// (a bonded lipid or its tail isn't: a pair only moves as a pair, see tick_amph)
+fn liq(c:u32) -> bool { let t = gt(c); return (t == WATER || t == OIL || amph(c)) && !bonded(c); }
 fn fl(c:u32) -> bool { return heavy(c) || liq(c); }
 // Liquid weight: oil 0 floats on water 2; soap and lipid weigh as much as water
 // (they float on it as a film and mix into it by their own moves, see tick_amph)
@@ -82,6 +83,7 @@ fn is_fire(c:u32) -> bool { return gt(c) == FIRE; }
 // plunge into water: see fall.)
 fn disp(mover:u32, dest:u32, sink:bool) -> bool {
   if (em(dest)) { return true; }
+  if (bonded(dest)) { return false; }
   if (!sink) { return false; }
   let td = gt(dest);
   if (td == OIL) { return heavy(mover) || lq(mover) || amph(mover); }
@@ -132,7 +134,7 @@ fn fall(c: ptr<function, Cells>, i:u32, b: Block, sink:bool) {
     // a waterfall carves a plunge pool and heaps the sand around it
     (*c)[i] = motion((*c)[j], 0u, (roll(b, i, 76u) & 1u) == 1u, 3u);
     (*c)[j] = motion(a, 0u, side_r(a), 0u);
-  } else if (v > 0u && ((lq(a) && amph((*c)[j])) || (amph(a) && lq((*c)[j])))) {
+  } else if (v > 0u && ((lq(a) && amph((*c)[j]) && !bonded((*c)[j])) || (amph(a) && lq((*c)[j])))) {
     // Falling water passes through soap and lipid (rain falls through a film),
     // and falling soap or lipid plunges into water, slowing to a stop 1 in
     // AMPH_PLUNGE_ODDS steps (resting, they weigh the same: see weight)
@@ -757,6 +759,10 @@ fn at(c: Cells, b: Block, x:u32, y:u32) -> u32 {
   if (x >= b.bx && x < b.bx + 2u && y >= b.by && y < b.by + 2u) { return c[(y - b.by) * 2u + (x - b.bx)]; }
   return gi[idx(x, y)];
 }
+// Cells the energy treats as (part of) a molecule, and the way each faces: a
+// bonded tail faces its head, so a pair scores like two molecules in a row
+fn amph_e(c:u32) -> bool { return amph(c) || bonded(c); }
+fn head_e(c:u32) -> u32 { return select(head(c), partner_dir(c), gt(c) == OIL); }
 fn dir_v(k:u32) -> vec2f { let o = vec2f(dir_off(k)); return o / length(o); }
 fn amph_crowd(a:u32) -> f32 { return f32(select(LIPID_CROWD, SOAP_CROWD, gt(a) == SOAP)) * 0.1; }
 fn amph_edge(a:u32) -> f32 { return f32(select(LIPID_EDGE, SOAP_EDGE, gt(a) == SOAP)) * 0.1; }
@@ -764,7 +770,7 @@ fn amph_align(a:u32) -> f32 { return f32(select(LIPID_ALIGN, SOAP_ALIGN, gt(a) =
 
 // Molecule a against a plain neighbor n in direction e (unit vector from a)
 fn amph_side(a:u32, n:u32, e:vec2f) -> f32 {
-  let s = dot(dir_v(head(a)), e);
+  let s = dot(dir_v(head_e(a)), e);
   let hs = max(s, 0.0);
   let ts = max(-s, 0.0);
   let t = gt(n);
@@ -781,11 +787,11 @@ fn amph_side(a:u32, n:u32, e:vec2f) -> f32 {
 // molecule beside or in front of it is crowded (by its own CROWD), and side
 // neighbors pointing the same way align (stiffness)
 fn amph_pair(a:u32, n:u32, e:vec2f) -> f32 {
-  let aa = amph(a);
-  let an = amph(n);
+  let aa = amph_e(a);
+  let an = amph_e(n);
   if (aa && an) {
-    let ha = dir_v(head(a));
-    let hn = dir_v(head(n));
+    let ha = dir_v(head_e(a));
+    let hn = dir_v(head_e(n));
     let sa = dot(ha, e);
     let sn = -dot(hn, e);
     let tails = f32(AMPH_TAILS) * 0.1 * max(-sa, 0.0) * max(-sn, 0.0);
@@ -835,7 +841,42 @@ fn amph_block_e(c: Cells, b: Block) -> f32 {
   }
   return e;
 }
-fn amph_movable(c:u32) -> bool { return amph(c) || lq(c) || gt(c) == OIL; }
+// The block slot of slot i's bonded partner, or 4u if it's outside the block
+fn partner_slot(c: Cells, i:u32) -> u32 {
+  let o = dir_off(partner_dir(c[i]));
+  let px = i32(i & 1u) + o.x;
+  let py = i32(i >> 1u) + o.y;
+  if (px < 0 || px > 1 || py < 0 || py > 1) { return 4u; }
+  return u32(py) * 2u + u32(px);
+}
+// Bond cell c to a partner in direction d (from c)
+fn bond_to(c:u32, d:u32) -> u32 {
+  if (gt(c) == LIPID) { return with_head(c, (d + 4u) & 7u) | (8u << 8u); }
+  return mc(OIL, 2u | ((d & 7u) << 2u), gv(c));
+}
+fn unbond(c:u32) -> u32 {
+  if (gt(c) == LIPID) { return c & ~(8u << 8u); }
+  return mc(OIL, 0u, gv(c));
+}
+// A bonded cell keeps its bond while its partner points back at it and it's
+// in liquid (with air under it the pair falls apart, and each half falls alone)
+fn bond_holds(c: Cells, b: Block, i:u32) -> bool {
+  let x = cell_x(b.bx, i);
+  let y = cell_y(b.by, i);
+  if (em(at(c, b, x, y + 1u))) { return false; }
+  let o = dir_off(partner_dir(c[i]));
+  let px = u32(i32(x) + o.x);
+  let py = u32(i32(y) + o.y);
+  let n = at(c, b, px, py);
+  if (!bonded(n) || gt(n) == gt(c[i])) { return false; }
+  let q = dir_off(partner_dir(n));
+  return u32(i32(px) + q.x) == x && u32(i32(py) + q.y) == y;
+}
+fn amph_movable(c: Cells, i:u32) -> bool {
+  let n = c[i];
+  if (bonded(n)) { return partner_slot(c, i) < 4u; }
+  return amph(n) || lq(n) || gt(n) == OIL;
+}
 
 // Drift: the block's two columns (or rows) trade places, molecules keeping
 // their headings, so a pair of molecules (a piece of bilayer) slides a cell as
@@ -844,27 +885,76 @@ fn amph_movable(c:u32) -> bool { return amph(c) || lq(c) || gt(c) == OIL; }
 fn amph_drift(cin: Cells, b: Block) -> Cells {
   let c = cin;
   if (!(amph(c[0]) || amph(c[1]) || amph(c[2]) || amph(c[3]))) { return c; }
-  if (!(amph_movable(c[0]) && amph_movable(c[1]) && amph_movable(c[2]) && amph_movable(c[3]))) { return c; }
+  if (!(amph_movable(c, 0u) && amph_movable(c, 1u) && amph_movable(c, 2u) && amph_movable(c, 3u))) { return c; }
   let r = roll(b, 0u, 127u);
   if ((r % AMPH_DRIFT_ODDS) != 0u) { return c; }
+  // slot s takes the cell from slot f ^ s (f = 1: columns, 2: rows); a bonded
+  // pair moves together, its pointers turned to where its partner went
+  let f = select(2u, 1u, ((r >> 8u) & 1u) == 0u);
   var t: Cells;
-  if (((r >> 8u) & 1u) == 0u) { t = Cells(c[1], c[0], c[3], c[2]); }
-  else { t = Cells(c[2], c[3], c[0], c[1]); }
+  for (var s = 0u; s < 4u; s = s + 1u) { t[s] = c[s ^ f]; }
+  for (var s = 0u; s < 4u; s = s + 1u) {
+    if (bonded(t[s])) { t[s] = bond_to(t[s], slot_k(s, partner_slot(c, s ^ f) ^ f)); }
+  }
   if (amph_accept(amph_block_e(t, b) - amph_block_e(c, b), roll(b, 1u, 127u))) { return t; }
+  return c;
+}
+
+// A two-cell lipid: it comes apart 1 in LIPID_UNBOND_ODDS steps, or when its
+// partner has gone or it's out of the water; with its partner in this block it
+// moves one of its halves into a third slot (every slot of a block touches
+// every other, so the bond holds), the pair turning to match
+fn tick_pair(cin: Cells, i:u32, b: Block) -> Cells {
+  var c = cin;
+  if (!bond_holds(c, b, i) || (roll(b, i, 128u) % LIPID_UNBOND_ODDS) == 0u) { c[i] = unbond(c[i]); return c; }
+  let p = partner_slot(c, i);
+  if (p == 4u || (roll(b, i, 129u) % AMPH_SWAP_ODDS) != 0u) { return c; }
+  let r = roll(b, i, 130u);
+  // the two slots that are neither half, then which half moves there
+  var js = array<u32, 2>(0u, 0u);
+  var k = 0u;
+  for (var s = 0u; s < 4u; s = s + 1u) { if (s != i && s != p) { js[k] = s; k = k + 1u; } }
+  let j = js[r & 1u];
+  let n = c[j];
+  if (!(lq(n) || ((gt(n) == OIL || amph(n)) && !bonded(n)))) { return c; }
+  let m = select(p, i, ((r >> 1u) & 1u) == 0u);
+  let stay = select(i, p, m == i);
+  var t = c;
+  t[m] = c[j]; t[j] = c[m];
+  t[j] = bond_to(t[j], slot_k(j, stay));
+  t[stay] = bond_to(t[stay], slot_k(stay, j));
+  if (amph_accept(amph_block_e(t, b) - amph_block_e(c, b), roll(b, i, 131u))) { return t; }
   return c;
 }
 
 fn tick_amph(cin: Cells, i:u32, b: Block) -> Cells {
   var c = cin;
+  if (bonded(c[i])) { return tick_pair(c, i, b); }
   let x = cell_x(b.bx, i);
   let y = cell_y(b.by, i);
+
+  // Lipid bonds to a loose oil cell at its tail, 1 in LIPID_BOND_ODDS steps:
+  // a two-cell molecule, the oil its tail
+  if (gt(c[i]) == LIPID) {
+    let o = dir_off((head(c[i]) + 4u) & 7u);
+    let qx = i32(i & 1u) + o.x;
+    let qy = i32(i >> 1u) + o.y;
+    if (qx >= 0 && qx <= 1 && qy >= 0 && qy <= 1) {
+      let q = u32(qy) * 2u + u32(qx);
+      if (gt(c[q]) == OIL && gd(c[q]) == 0u && (roll(b, i, 132u) % LIPID_BOND_ODDS) == 0u) {
+        c[i] = bond_to(c[i], slot_k(i, q));
+        c[q] = bond_to(c[q], slot_k(q, i));
+        return c;
+      }
+    }
+  }
 
   // Detergent: soap whose tail touches oil, with water in its block, pulls the
   // oil into the water as a coated droplet (see tick_oil): an emulsion
   if (gt(c[i]) == SOAP && (roll(b, i, 103u) % SOAP_MIX_ODDS) == 0u) {
     let j = find_neighbor(c, i, OIL, roll(b, i, 104u));
     let k = find_neighbor(c, i, WATER, roll(b, i, 105u));
-    if (j < 4u && k < 4u && dot(dir_v(head(c[i])), dir_v(slot_k(i, j))) < 0.0) {
+    if (j < 4u && k < 4u && !bonded(c[j]) && dot(dir_v(head(c[i])), dir_v(slot_k(i, j))) < 0.0) {
       let o = c[j]; c[j] = c[k]; c[k] = mc(OIL, 1u, gv(o)); return c;
     }
   }
@@ -883,7 +973,7 @@ fn tick_amph(cin: Cells, i:u32, b: Block) -> Cells {
   if ((roll(b, i, 123u) % AMPH_SWAP_ODDS) == 0u) {
     let j = (i + 1u + roll(b, i, 124u) % 3u) & 3u;
     let n = c[j];
-    if (lq(n) || gt(n) == OIL || (amph(n) && n != c[i])) {
+    if (lq(n) || ((gt(n) == OIL || (amph(n) && n != c[i])) && !bonded(n))) {
       let xj = cell_x(b.bx, j);
       let yj = cell_y(b.by, j);
       let k = slot_k(i, j);
@@ -902,6 +992,7 @@ fn tick_amph(cin: Cells, i:u32, b: Block) -> Cells {
 // coating 1 in EMULSION_ODDS steps, after which it floats back up
 fn tick_oil(cin: Cells, i:u32, b: Block) -> Cells {
   var c = cin;
+  if (bonded(c[i])) { if (!bond_holds(c, b, i)) { c[i] = unbond(c[i]); } return c; }
   if (gd(c[i]) != 1u) { return c; }
   if ((roll(b, i, 109u) % EMULSION_ODDS) == 0u) { c[i] = mc(OIL, 0u, gv(c[i])); return c; }
   if ((roll(b, i, 110u) & 3u) == 0u) {
